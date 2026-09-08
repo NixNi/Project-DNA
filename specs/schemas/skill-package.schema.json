@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opencode.ai/schemas/dna/skill-package.schema.json",
+  "title": "ProjectDNASkillPackage",
+  "description": "Metadata and lifecycle structure for an autonomous LiveSkill in Project DNA",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "version",
+    "description",
+    "triggers",
+    "tags",
+    "confidenceScore",
+    "lifecycleStatus",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the skill (e.g. ULID or slug)"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Slug name of the skill directory (e.g. prisma-migration-repair)"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "SemVer version of the skill"
+    },
+    "description": {
+      "type": "string",
+      "description": "Clear high-level overview of what problem this skill solves"
+    },
+    "triggers": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Phrases, intent patterns, or error codes that trigger this skill"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Classification tags for taxonomy and retrieval"
+    },
+    "author": {
+      "type": "string",
+      "default": "dna-synthesizer",
+      "description": "Synthesizer model or author identity"
+    },
+    "confidenceScore": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Health/confidence metric based on past successful applications"
+    },
+    "lifecycleStatus": {
+      "type": "string",
+      "enum": ["HARVESTED", "STAGED", "ACTIVE", "DEGRADED", "ARCHIVED"],
+      "description": "Current lifecycle status of the skill"
+    },
+    "scripts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths to helper scripts included in the skill package"
+    },
+    "references": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths to reference markdown or documentation files in the skill package"
+    },
+    "telemetry": {
+      "type": "object",
+      "properties": {
+        "executionCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failureCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lastAppliedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

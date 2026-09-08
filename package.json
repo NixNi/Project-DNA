@@ -1,0 +1,32 @@
+{
+  "name": "opencode-plugin-dna",
+  "version": "0.1.0",
+  "description": "LiveTools, LiveSkills, and LiveMemory self-synthesizing plugin for OpenCode",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "agentic-memory",
+    "live-tools",
+    "live-skills",
+    "zettelkasten",
+    "latm"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "peerDependencies": {
+    "@opencode-ai/plugin": "^1.18.0",
+    "@opencode-ai/sdk": "^1.18.0",
+    "zod": "^3.22.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}

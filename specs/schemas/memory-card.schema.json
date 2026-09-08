@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opencode.ai/schemas/dna/memory-card.schema.json",
+  "title": "ProjectDNAMemoryCard",
+  "description": "Zettelkasten atomic memory card and dynamic link model in Project DNA",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "category",
+    "insight",
+    "context",
+    "tags",
+    "links",
+    "accessCount",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier (ULID or UUID)"
+    },
+    "title": {
+      "type": "string",
+      "description": "Brief, human-readable title summarizing the atomic finding"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "ARCH_DECISION",
+        "CODEBASE_CONVENTION",
+        "ERROR_DIAGNOSTIC",
+        "DOMAIN_LOGIC",
+        "USER_PREFERENCE"
+      ],
+      "description": "Functional classification of the memory note"
+    },
+    "insight": {
+      "type": "string",
+      "description": "The distilled core principle, heuristic, or fact"
+    },
+    "context": {
+      "type": "string",
+      "description": "The situation, environment, or session context where this note originated"
+    },
+    "evidence": {
+      "type": "string",
+      "description": "Log output, stack trace, or benchmark result supporting the insight"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Keywords for associative retrieval"
+    },
+    "accessCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of times this note was retrieved and injected into a prompt"
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Link"
+      },
+      "description": "Dynamically formed directed links to other memory cards"
+    },
+    "sessionID": {
+      "type": "string",
+      "description": "ID of the OpenCode session during which the note was created"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "Link": {
+      "type": "object",
+      "required": ["targetCardId", "relation", "strength", "rationale"],
+      "properties": {
+        "targetCardId": {
+          "type": "string",
+          "description": "Identifier of the target memory card"
+        },
+        "relation": {
+          "type": "string",
+          "enum": [
+            "CAUSED_BY",
+            "SUPERSEDES",
+            "RELATES_TO",
+            "REFINES",
+            "CONTRADICTS"
+          ],
+          "description": "Type of epistemic relationship"
+        },
+        "strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Confidence weight of the link"
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Explanation of why this link was generated"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

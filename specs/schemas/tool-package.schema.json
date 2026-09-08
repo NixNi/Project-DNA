@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opencode.ai/schemas/dna/tool-package.schema.json",
+  "title": "ProjectDNAToolPackage",
+  "description": "Metadata and definition for an agent-synthesized LiveTool in Project DNA",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "version",
+    "description",
+    "entrypoint",
+    "status",
+    "createdAt",
+    "updatedAt",
+    "telemetry"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the tool (e.g. ULID or uuid-v4)"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$",
+      "description": "Unique identifier of the tool matching the OpenCode tool invocation key"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "SemVer version of the synthesized tool"
+    },
+    "description": {
+      "type": "string",
+      "description": "Semantic description presented to the LLM for tool selection"
+    },
+    "entrypoint": {
+      "type": "string",
+      "description": "Relative path to the compiled/source TypeScript tool file (e.g. src/my_tool.ts)"
+    },
+    "testFile": {
+      "type": "string",
+      "description": "Relative path to the associated unit test suite (e.g. tests/my_tool.test.ts)"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PROPOSED", "TESTING", "ACTIVE", "DEGRADED", "ARCHIVED"],
+      "description": "Current lifecycle status of the tool"
+    },
+    "parameters": {
+      "type": "object",
+      "description": "JSON Schema representation of the Zod parameter shape accepted by this tool"
+    },
+    "telemetry": {
+      "type": "object",
+      "required": ["totalInvocations", "successCount", "failureCount", "healthScore"],
+      "properties": {
+        "totalInvocations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failureCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "avgDurationMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "healthScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lastExecutedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}
