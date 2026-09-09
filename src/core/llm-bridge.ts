@@ -13,10 +13,10 @@ export interface PromptOptions {
 
 export interface IOpenCodeClientLike {
   config: {
-    get: () => Promise<{ data?: { model?: any; small_model?: any } }>
+    get: (options?: any) => Promise<{ data?: { model?: any; small_model?: any } } | any>
   }
   session: {
-    create: (options: { body: { title?: string } }) => Promise<{ data: { id: string } }>
+    create: (options: { body: { title?: string } }) => Promise<{ data?: { id?: string } } | any>
     prompt: (options: {
       path: { id: string }
       body: {
@@ -24,7 +24,7 @@ export interface IOpenCodeClientLike {
         system?: string
         parts: Array<{ type: "text"; text: string }>
       }
-    }) => Promise<{ data?: { parts?: Array<{ type: string; text?: string }> } }>
+    }) => Promise<{ data?: { parts?: Array<{ type: string; text?: string }> } } | any>
     delete: (options: { path: { id: string } }) => Promise<unknown>
   }
 }
@@ -83,8 +83,8 @@ export class OpenCodeLLMBridge {
       const result = await Promise.race([promptPromise, timeoutPromise])
 
       // 4. Extract generated text
-      const parts = result?.data?.parts ?? []
-      const textPart = parts.find((p) => p.type === "text")
+      const parts: any[] = result?.data?.parts ?? []
+      const textPart = parts.find((p: any) => p.type === "text")
       return textPart?.text ?? ""
     } finally {
       // 5. Clean up background sub-session so user history stays completely clean

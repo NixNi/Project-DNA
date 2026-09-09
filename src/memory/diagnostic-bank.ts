@@ -8,10 +8,16 @@ import { randomUUID } from "node:crypto"
 export class DiagnosticBank implements IDiagnosticBank {
   private traces: DiagnosticTrace[] = []
 
-  public async recordFailure(
-    trace: Omit<DiagnosticTrace, "id" | "timestamp">
-  ): Promise<void> {
-    const signature = this.normalizeErrorSignature(trace.rawError)
+  public async recordFailure(trace: {
+    sessionID: string
+    errorSignature?: string
+    command?: string
+    toolName?: string
+    rawError: string
+    recoveryAction?: string
+    resolved?: boolean
+  }): Promise<void> {
+    const signature = trace.errorSignature ?? this.normalizeErrorSignature(trace.rawError)
     const newTrace: DiagnosticTrace = {
       id: randomUUID(),
       sessionID: trace.sessionID,

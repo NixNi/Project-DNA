@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "description": "LiveTools, LiveSkills, and LiveMemory self-synthesizing plugin for OpenCode",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "bun test"
   },
   "keywords": [
     "opencode",

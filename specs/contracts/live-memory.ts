@@ -120,7 +120,15 @@ export interface IDiagnosticBank {
   /**
    * Records an intercepted failure from tool execution or shell command
    */
-  recordFailure(trace: Omit<DiagnosticTrace, "id" | "timestamp">): Promise<void>
+  recordFailure(trace: {
+    sessionID: string
+    errorSignature?: string
+    command?: string
+    toolName?: string
+    rawError: string
+    recoveryAction?: string
+    resolved?: boolean
+  }): Promise<void>
 
   /**
    * Marks an error trace as resolved and pairs it with the successful recovery action

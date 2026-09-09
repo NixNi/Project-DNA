@@ -70,10 +70,10 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
     },
 
     // Execution Interception: Step buffering & intent capture
-    "tool.execute.before": async (inp) => {
+    "tool.execute.before": async (inp, out) => {
       skillHarvester.recordStep(inp.sessionID, {
         tool: inp.tool,
-        args: inp.args ?? {},
+        args: out?.args ?? {},
         output: "",
         timestamp: new Date().toISOString(),
       })

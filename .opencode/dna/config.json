@@ -1,0 +1,11 @@
+{
+  "enableLiveTools": true,
+  "enableLiveSkills": true,
+  "enableLiveMemory": true,
+  "storageDir": ".opencode/dna",
+  "maxInjectedSkills": 2,
+  "maxInjectedNotes": 4,
+  "autoPruneIntervalHours": 24,
+  "healthDecayThreshold": 0.6,
+  "synthesisTimeoutMs": 30000
+}
