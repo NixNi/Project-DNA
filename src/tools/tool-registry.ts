@@ -21,11 +21,36 @@ export class LiveToolRegistry implements ILiveToolRegistry {
       const data = await fs.readFile(this.registryFilePath, "utf-8")
       const list: ToolPackageMetadata[] = JSON.parse(data)
       for (const meta of list) {
-        this.toolsMap.set(meta.name, { metadata: meta })
+        let executable: unknown = undefined
+        if (meta.status === "ACTIVE") {
+          executable = await this.loadExecutable(meta.name, meta.entrypoint)
+        }
+        this.toolsMap.set(meta.name, { metadata: meta, executable })
       }
     } catch {
       // Initialize empty registry file if missing
       await this.saveRegistry()
+    }
+  }
+
+  public async loadExecutable(toolName: string, entrypoint: string): Promise<unknown> {
+    const absPath = path.isAbsolute(entrypoint)
+      ? entrypoint
+      : path.join(this.toolsDir, entrypoint)
+
+    try {
+      const fileUrl = `file://${absPath}?t=${Date.now()}`
+      const mod = await import(fileUrl)
+      const executable =
+        mod.default ||
+        mod[toolName] ||
+        Object.values(mod).find(
+          (v: any) => typeof v === "object" && v !== null && "execute" in v
+        )
+      return executable
+    } catch (err) {
+      console.error(`[Project DNA] Failed to dynamically import tool ${toolName}:`, err)
+      return undefined
     }
   }
 
@@ -38,6 +63,16 @@ export class LiveToolRegistry implements ILiveToolRegistry {
       executable: executableModule,
     })
     await this.saveRegistry()
+  }
+
+  public async registerAndLoad(metadata: ToolPackageMetadata): Promise<unknown> {
+    const executable = await this.loadExecutable(metadata.name, metadata.entrypoint)
+    this.toolsMap.set(metadata.name, {
+      metadata,
+      executable,
+    })
+    await this.saveRegistry()
+    return executable
   }
 
   public getToolMap(): Record<string, unknown> {

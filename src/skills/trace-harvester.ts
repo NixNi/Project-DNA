@@ -36,6 +36,22 @@ export class LiveSkillHarvester implements ILiveSkillHarvester {
     }
   }
 
+  /**
+   * Intelligently infers session resolution if still IN_PROGRESS.
+   * If the session had multiple steps and completed without active unresolved errors,
+   * it marks the resolution as SUCCESS to enable skill harvesting.
+   */
+  public evaluateAndSetResolution(sessionID: string, hasUnresolvedError = false): "SUCCESS" | "FAILED" {
+    const buf = this.buffers.get(sessionID)
+    if (!buf) return "FAILED"
+
+    if (buf.finalResolution === "IN_PROGRESS") {
+      buf.finalResolution = (!hasUnresolvedError && buf.steps.length >= 2) ? "SUCCESS" : "FAILED"
+    }
+
+    return buf.finalResolution
+  }
+
   public isEligibleForHarvest(sessionID: string): boolean {
     const buf = this.buffers.get(sessionID)
     if (!buf || buf.finalResolution !== "SUCCESS") return false

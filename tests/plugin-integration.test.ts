@@ -49,6 +49,7 @@ describe("ProjectDNAPlugin Integration", () => {
     const hooks = await ProjectDNAPlugin(mockInput, {})
     assert.ok(hooks)
     assert.ok(hooks.tool)
+    assert.ok((hooks.tool as any)["synthesize_live_tool"])
     assert.ok(hooks["chat.message"])
     assert.ok(hooks["experimental.session.compacting"])
     assert.ok(hooks["experimental.chat.system.transform"])

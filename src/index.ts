@@ -4,6 +4,10 @@
  */
 
 import type { Plugin, Hooks } from "@opencode-ai/plugin"
+import { tool } from "@opencode-ai/plugin/tool"
+import { z } from "zod"
+import { randomUUID } from "node:crypto"
+
 import { ConfigManager, type ProjectDNAConfig } from "./core/config.js"
 import { UniversalSqliteDatabase } from "./core/sqlite-adapter.js"
 import { OpenCodeLLMBridge } from "./core/llm-bridge.js"
@@ -32,34 +36,126 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
   const db = new UniversalSqliteDatabase(configManager.memoryDbPath)
   const llmBridge = new OpenCodeLLMBridge(input.client)
 
-  // 3. Initialize LiveMemory Subsystem
-  const memoryStore = new MemoryStore(db)
-  await memoryStore.init()
-  const linkGenerator = new DynamicLinkGenerator(llmBridge)
-  const diagnosticBank = new DiagnosticBank()
+  // 3. Conditionally Initialize LiveMemory Subsystem
+  let memoryStore: MemoryStore | undefined
+  let linkGenerator: DynamicLinkGenerator | undefined
+  let diagnosticBank: DiagnosticBank | undefined
 
-  // 4. Initialize LiveTools Subsystem
-  const toolRegistry = new LiveToolRegistry(configManager.toolsDir)
-  await toolRegistry.loadActiveTools()
-  const toolMaker = new LiveToolMaker(llmBridge, input.directory, configManager.toolsDir)
+  if (cfg.enableLiveMemory) {
+    memoryStore = new MemoryStore(db)
+    await memoryStore.init()
+    linkGenerator = new DynamicLinkGenerator(llmBridge)
+    diagnosticBank = new DiagnosticBank()
+  }
 
-  // 5. Initialize LiveSkills Subsystem
-  const skillHarvester = new LiveSkillHarvester()
-  const skillDistiller = new LiveSkillDistiller(llmBridge)
-  const skillStore = new LiveSkillStore(
-    configManager.activeSkillsDir,
-    configManager.stagedSkillsDir,
-    configManager.archivedSkillsDir
-  )
-  await skillStore.loadActiveSkills()
+  // 4. Conditionally Initialize LiveTools Subsystem
+  let toolRegistry: LiveToolRegistry | undefined
+  let toolMaker: LiveToolMaker | undefined
+  const liveToolsMap: Record<string, unknown> = {}
+
+  if (cfg.enableLiveTools) {
+    toolRegistry = new LiveToolRegistry(configManager.toolsDir)
+    await toolRegistry.loadActiveTools()
+    toolMaker = new LiveToolMaker(llmBridge, input.directory, configManager.toolsDir)
+
+    // Load existing active tools into map
+    Object.assign(liveToolsMap, toolRegistry.getToolMap())
+
+    // Meta-tool: Allows the agent to explicitly synthesize, verify, and hot-load new tools
+    const schema = tool.schema ?? z
+    liveToolsMap["synthesize_live_tool"] = tool({
+      description:
+        "Synthesizes a new reusable TypeScript tool, validates its AST security, verifies it in an isolated test sandbox, and hot-loads it immediately into OpenCode.",
+      args: {
+        toolName: schema
+          .string()
+          .regex(/^[a-z0-9_-]+$/)
+          .describe("Unique snake_case or kebab-case name of the new tool"),
+        intent: schema
+          .string()
+          .describe("Detailed description of what the tool accomplishes and its requirements"),
+        sampleInputs: schema
+          .array(schema.record(schema.string(), schema.any()))
+          .describe("Representative input arguments for test verification"),
+        expectedOutputs: schema
+          .array(schema.any())
+          .describe("Expected outputs corresponding to the sample inputs"),
+      } as any,
+      async execute(args: any) {
+        if (!toolMaker || !toolRegistry) {
+          throw new Error("LiveTools subsystem is disabled.")
+        }
+
+        const toolName = String(args.toolName)
+        const intent = String(args.intent)
+        const sampleInputs = (Array.isArray(args.sampleInputs) ? args.sampleInputs : []) as Record<string, unknown>[]
+        const expectedOutputs = (Array.isArray(args.expectedOutputs) ? args.expectedOutputs : []) as unknown[]
+
+        await toolMaker.synthesize({
+          toolName,
+          intent,
+          sampleInputs,
+          expectedOutputs,
+        })
+
+        const metadata = {
+          id: randomUUID(),
+          name: toolName,
+          version: "1.0.0",
+          description: intent,
+          entrypoint: `src/${toolName}.ts`,
+          testFile: `tests/${toolName}.test.ts`,
+          status: "ACTIVE" as const,
+          parameters: {},
+          telemetry: {
+            totalInvocations: 0,
+            successCount: 0,
+            failureCount: 0,
+            avgDurationMs: 0,
+            healthScore: 1.0,
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+
+        // Hot-load executable module into memory and persist to registry.json
+        const executable = await toolRegistry.registerAndLoad(metadata)
+        if (executable) {
+          liveToolsMap[toolName] = executable
+        }
+
+        return {
+          title: `Synthesized & Hot-Loaded Tool: ${toolName}`,
+          output: `Tool '${toolName}' was successfully synthesized, passed AST security validation, passed sandbox unit testing, and is now actively hot-loaded and available for invocation!`,
+        }
+      },
+    })
+  }
+
+  // 5. Conditionally Initialize LiveSkills Subsystem
+  let skillHarvester: LiveSkillHarvester | undefined
+  let skillDistiller: LiveSkillDistiller | undefined
+  let skillStore: LiveSkillStore | undefined
+
+  if (cfg.enableLiveSkills) {
+    skillHarvester = new LiveSkillHarvester()
+    skillDistiller = new LiveSkillDistiller(llmBridge)
+    skillStore = new LiveSkillStore(
+      configManager.activeSkillsDir,
+      configManager.stagedSkillsDir,
+      configManager.archivedSkillsDir
+    )
+    await skillStore.loadActiveSkills()
+  }
 
   // 6. Assemble OpenCode Hooks
   const hooks: Hooks = {
     // Dynamic Tool Registry exposed to OpenCode
-    tool: toolRegistry.getToolMap() as any,
+    tool: liveToolsMap as any,
 
     // Dynamic schema & description mutation
     "tool.definition": async (inp, out) => {
+      if (!toolRegistry) return
       const meta = toolRegistry.getMetadata(inp.toolID)
       if (meta) {
         out.description = meta.description
@@ -71,12 +167,14 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
 
     // Execution Interception: Step buffering & intent capture
     "tool.execute.before": async (inp, out) => {
-      skillHarvester.recordStep(inp.sessionID, {
-        tool: inp.tool,
-        args: out?.args ?? {},
-        output: "",
-        timestamp: new Date().toISOString(),
-      })
+      if (skillHarvester) {
+        skillHarvester.recordStep(inp.sessionID, {
+          tool: inp.tool,
+          args: out?.args ?? {},
+          output: "",
+          timestamp: new Date().toISOString(),
+        })
+      }
     },
 
     // Execution Interception: Telemetry, Error detection, and Recovery logging
@@ -84,23 +182,25 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
       const isError = /error|failed|exception/i.test(out.output ?? "")
       const durationMs = 100 // Estimate if not directly provided
 
-      if (toolRegistry.isLiveTool(inp.tool)) {
+      if (toolRegistry && toolRegistry.isLiveTool(inp.tool)) {
         await toolRegistry.recordExecution(inp.tool, !isError, durationMs)
       }
 
-      if (isError) {
-        await diagnosticBank.recordFailure({
-          sessionID: inp.sessionID,
-          toolName: inp.tool,
-          rawError: out.output ?? "Unknown tool error",
-          resolved: false,
-        })
-      } else {
-        // Successful execution records recovery if resolving an earlier failure
-        await diagnosticBank.recordRecovery(
-          inp.sessionID,
-          `Executed tool ${inp.tool} with args ${JSON.stringify(inp.args ?? {})}`
-        )
+      if (diagnosticBank) {
+        if (isError) {
+          await diagnosticBank.recordFailure({
+            sessionID: inp.sessionID,
+            toolName: inp.tool,
+            rawError: out.output ?? "Unknown tool error",
+            resolved: false,
+          })
+        } else {
+          // Successful execution records recovery if resolving an earlier failure
+          await diagnosticBank.recordRecovery(
+            inp.sessionID,
+            `Executed tool ${inp.tool} with args ${JSON.stringify(inp.args ?? {})}`
+          )
+        }
       }
     },
 
@@ -110,34 +210,38 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
       const userText = textPart && "text" in textPart ? (textPart.text as string) : ""
 
       if (userText) {
-        skillHarvester.setUserGoal(inp.sessionID, userText)
-
-        // Retrieve relevant skills
-        const matchedSkills = await skillStore.matchSkills(userText)
-        const topSkills = matchedSkills.slice(0, cfg.maxInjectedSkills)
-
-        // Retrieve relevant Zettelkasten memory cards
-        const relevantCards = await memoryStore.queryRelevant(userText, cfg.maxInjectedNotes)
+        if (skillHarvester) {
+          skillHarvester.setUserGoal(inp.sessionID, userText)
+        }
 
         const enrichments: string[] = []
 
-        if (topSkills.length > 0) {
-          enrichments.push(
-            `### Project DNA: Relevant Procedural Skills\n` +
-              topSkills.map((s) => s.injectedGuideline).join("\n\n")
-          )
+        // Retrieve relevant skills if enabled
+        if (skillStore) {
+          const matchedSkills = await skillStore.matchSkills(userText)
+          const topSkills = matchedSkills.slice(0, cfg.maxInjectedSkills)
+          if (topSkills.length > 0) {
+            enrichments.push(
+              `### Project DNA: Relevant Procedural Skills\n` +
+                topSkills.map((s) => s.injectedGuideline).join("\n\n")
+            )
+          }
         }
 
-        if (relevantCards.length > 0) {
-          enrichments.push(
-            `### Project DNA: Interconnected Knowledge Cards\n` +
-              relevantCards
-                .map(
-                  (c) =>
-                    `- [${c.category}] **${c.title}**: ${c.insight} (Tags: ${c.tags.join(", ")})`
-                )
-                .join("\n")
-          )
+        // Retrieve relevant Zettelkasten memory cards if enabled
+        if (memoryStore) {
+          const relevantCards = await memoryStore.queryRelevant(userText, cfg.maxInjectedNotes)
+          if (relevantCards.length > 0) {
+            enrichments.push(
+              `### Project DNA: Interconnected Knowledge Cards\n` +
+                relevantCards
+                  .map(
+                    (c) =>
+                      `- [${c.category}] **${c.title}**: ${c.insight} (Tags: ${c.tags.join(", ")})`
+                  )
+                  .join("\n")
+            )
+          }
         }
 
         if (enrichments.length > 0) {
@@ -151,15 +255,25 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
 
     // System Prompt Transform Hook: High-level architectural instructions
     "experimental.chat.system.transform": async (_inp, out) => {
+      const activePillars = [
+        cfg.enableLiveTools ? "LiveTools (LATM synthesis)" : null,
+        cfg.enableLiveSkills ? "LiveSkills (Dynamic procedural lifecycle)" : null,
+        cfg.enableLiveMemory ? "LiveMemory (A-Mem Zettelkasten)" : null,
+      ]
+        .filter(Boolean)
+        .join(", ")
+
       out.system.push(
-        "Project DNA is active: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes."
+        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes.`
       )
     },
 
     // Compaction Hook: Preserves uncompacted session state across context window truncation
     "experimental.session.compacting": async (inp, out) => {
-      const sessionNotes = await memoryStore.getNotesForSession(inp.sessionID)
-      const activeDiagnostics = await diagnosticBank.getActiveDiagnostics(inp.sessionID)
+      const sessionNotes = memoryStore ? await memoryStore.getNotesForSession(inp.sessionID) : []
+      const activeDiagnostics = diagnosticBank
+        ? await diagnosticBank.getActiveDiagnostics(inp.sessionID)
+        : []
 
       if (sessionNotes.length > 0 || activeDiagnostics.length > 0) {
         out.context.push(`
@@ -187,48 +301,58 @@ ${
       const ev = event as any
       switch (ev.type) {
         case "EventSessionIdle": {
-          // Agent turn is idle: prime moment for background synthesis!
           const sessionID = ev.sessionID
 
-          // 1. Check if session trajectory is eligible for skill harvesting
-          if (skillHarvester.isEligibleForHarvest(sessionID)) {
-            const trace = skillHarvester.getTrace(sessionID)
-            if (trace) {
-              try {
-                const distilled = await skillDistiller.distill(trace)
-                const verified = await skillDistiller.adversarialVerify(distilled)
-                if (verified.passed) {
-                  await skillStore.saveSkill(distilled)
+          // 1. Skill harvesting with organic resolution evaluation
+          if (skillHarvester && skillDistiller && skillStore) {
+            const activeErrors = diagnosticBank
+              ? await diagnosticBank.getActiveDiagnostics(sessionID)
+              : []
+            skillHarvester.evaluateAndSetResolution(sessionID, activeErrors.length > 0)
+
+            if (skillHarvester.isEligibleForHarvest(sessionID)) {
+              const trace = skillHarvester.getTrace(sessionID)
+              if (trace) {
+                try {
+                  const distilled = await skillDistiller.distill(trace)
+                  const verified = await skillDistiller.adversarialVerify(distilled)
+                  if (verified.passed) {
+                    await skillStore.saveSkill(distilled)
+                  }
+                } catch {
+                  // Synthesis failure non-blocking
+                } finally {
+                  skillHarvester.clearTrace(sessionID)
                 }
-              } catch {
-                // Synthesis failure non-blocking
-              } finally {
-                skillHarvester.clearTrace(sessionID)
               }
             }
           }
 
           // 2. Distill resolved diagnostics into permanent knowledge notes
-          try {
-            await diagnosticBank.distillToMemory(memoryStore)
-          } catch {
-            // Non-blocking
+          if (diagnosticBank && memoryStore) {
+            try {
+              await diagnosticBank.distillToMemory(memoryStore)
+            } catch {
+              // Non-blocking
+            }
           }
 
           break
         }
 
         case "EventSessionError": {
-          await diagnosticBank.recordFailure({
-            sessionID: ev.sessionID,
-            rawError: ev.error ?? "Session runtime error",
-            resolved: false,
-          })
+          if (diagnosticBank) {
+            await diagnosticBank.recordFailure({
+              sessionID: ev.sessionID,
+              rawError: ev.error ?? "Session runtime error",
+              resolved: false,
+            })
+          }
           break
         }
 
         case "EventCommandExecuted": {
-          if (ev.exitCode !== 0) {
+          if (diagnosticBank && ev.exitCode !== 0) {
             await diagnosticBank.recordFailure({
               sessionID: ev.sessionID ?? "global",
               command: ev.command,
