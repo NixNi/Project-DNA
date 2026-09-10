@@ -58,13 +58,21 @@ export interface ProjectDNAContext {
 export type ProjectDNAPluginFactory = Plugin
 
 /**
+ * Options for OpenCode LLM Bridge prompt execution
+ */
+export interface LLMPromptOptions {
+  systemPrompt: string
+  userPrompt: string
+  useSmallModel?: boolean
+  timeoutMs?: number
+}
+
+/**
  * OpenCode LLM Reuse Bridge
  * Allows background synthesis to run via `ctx.client.session` without external keys
  */
 export interface IOpenCodeLLMBridge {
-  synthesize(options: {
-    systemPrompt: string
-    userPrompt: string
-    useSmallModel?: boolean
-  }): Promise<string>
+  prompt(options: LLMPromptOptions): Promise<string>
+  promptJson<T = unknown>(options: LLMPromptOptions): Promise<T>
+  synthesize(options: LLMPromptOptions): Promise<string>
 }

@@ -22,7 +22,7 @@ export const DEFAULT_CONFIG: ProjectDNAConfig = {
   maxInjectedNotes: 4,
   autoPruneIntervalHours: 24,
   healthDecayThreshold: 0.6,
-  synthesisTimeoutMs: 30000,
+  synthesisTimeoutMs: 120000,
 }
 
 export class ConfigManager {

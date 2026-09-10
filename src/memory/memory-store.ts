@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto"
 export class MemoryStore implements ILiveMemoryStore {
   constructor(private db: ISqliteDatabase) {}
 
-  public async init(): Promise<void> {
+  public async init(_workspacePath?: string): Promise<void> {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS cards (
         id TEXT PRIMARY KEY,

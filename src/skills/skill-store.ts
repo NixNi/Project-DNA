@@ -10,12 +10,15 @@ import type {
 export class LiveSkillStore implements ILiveSkillStore {
   private activeSkills: Map<string, { metadata: SkillPackageMetadata; content: string }> =
     new Map()
+  private indexPath: string
 
   constructor(
     private activeDir: string,
     private stagedDir: string,
     private archiveDir: string
-  ) {}
+  ) {
+    this.indexPath = path.join(path.dirname(activeDir), "index.json")
+  }
 
   public async loadActiveSkills(): Promise<void> {
     this.activeSkills.clear()
@@ -40,6 +43,7 @@ export class LiveSkillStore implements ILiveSkillStore {
     } catch {
       // Directory may not yet have skills
     }
+    await this.saveIndex()
   }
 
   public async matchSkills(prompt: string): Promise<SkillMatchResult[]> {
@@ -101,6 +105,7 @@ export class LiveSkillStore implements ILiveSkillStore {
       metadata: distilled.metadata,
       content: distilled.skillMarkdownContent,
     })
+    await this.saveIndex()
   }
 
   public async recordOutcome(skillName: string, success: boolean): Promise<void> {
@@ -126,6 +131,7 @@ export class LiveSkillStore implements ILiveSkillStore {
       JSON.stringify(item.metadata, null, 2),
       "utf-8"
     )
+    await this.saveIndex()
   }
 
   public async pruneLibrary(): Promise<{ archived: string[]; retained: string[] }> {
@@ -147,6 +153,31 @@ export class LiveSkillStore implements ILiveSkillStore {
       }
     }
 
+    await this.saveIndex()
     return { archived, retained }
+  }
+
+  /**
+   * Persists semantic index and health scores to index.json as specified in architecture
+   */
+  private async saveIndex(): Promise<void> {
+    try {
+      const indexList = Array.from(this.activeSkills.values()).map((s) => ({
+        id: s.metadata.id,
+        name: s.metadata.name,
+        version: s.metadata.version,
+        description: s.metadata.description,
+        triggers: s.metadata.triggers,
+        tags: s.metadata.tags,
+        confidenceScore: s.metadata.confidenceScore,
+        lifecycleStatus: s.metadata.lifecycleStatus,
+        telemetry: s.metadata.telemetry,
+        updatedAt: s.metadata.updatedAt,
+      }))
+      await fs.mkdir(path.dirname(this.indexPath), { recursive: true })
+      await fs.writeFile(this.indexPath, JSON.stringify(indexList, null, 2), "utf-8")
+    } catch {
+      // Suppress persistence errors in non-critical index updates
+    }
   }
 }

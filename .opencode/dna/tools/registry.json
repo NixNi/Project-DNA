@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "id": "dcb5cb58-1375-4fa3-a010-3df33f0fbb1a",
+    "name": "project_test_runner",
+    "version": "1.0.0",
+    "description": "Runs the Project DNA test suite using bun test. Supports filtering by file pattern, test name, bail-on-first-failure, and custom timeout. Returns structured pass/fail results with duration and error details.",
+    "entrypoint": "src/project_test_runner.ts",
+    "testFile": "tests/project_test_runner.test.ts",
+    "status": "ACTIVE",
+    "parameters": {},
+    "telemetry": {
+      "totalInvocations": 1,
+      "successCount": 0,
+      "failureCount": 1,
+      "avgDurationMs": 100,
+      "healthScore": 0,
+      "lastExecutedAt": "2026-09-10T11:58:16.170Z"
+    },
+    "createdAt": "2026-09-10T11:56:18.900Z",
+    "updatedAt": "2026-09-10T11:58:16.170Z"
+  }
+]

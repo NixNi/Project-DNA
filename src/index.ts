@@ -34,7 +34,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
 
   // 2. Initialize Foundation Bridges & Database
   const db = new UniversalSqliteDatabase(configManager.memoryDbPath)
-  const llmBridge = new OpenCodeLLMBridge(input.client)
+  const llmBridge = new OpenCodeLLMBridge(input.client, cfg.synthesisTimeoutMs)
 
   // 3. Conditionally Initialize LiveMemory Subsystem
   let memoryStore: MemoryStore | undefined
@@ -65,7 +65,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
     const schema = tool.schema ?? z
     liveToolsMap["synthesize_live_tool"] = tool({
       description:
-        "Synthesizes a new reusable TypeScript tool, validates its AST security, verifies it in an isolated test sandbox, and hot-loads it immediately into OpenCode.",
+        "Synthesizes a new reusable TypeScript tool or registers a model-authored implementation, validates its AST security, verifies it in an isolated test sandbox, and hot-loads it immediately into OpenCode.",
       args: {
         toolName: schema
           .string()
@@ -74,11 +74,21 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         intent: schema
           .string()
           .describe("Detailed description of what the tool accomplishes and its requirements"),
+        sourceCode: schema
+          .string()
+          .optional()
+          .describe("Optional: The complete TypeScript source code if written directly by the model. When provided, bypasses background LLM synthesis."),
+        testCode: schema
+          .string()
+          .optional()
+          .describe("Optional: Unit test TypeScript code using node:test or bun:test to verify the tool in the sandbox."),
         sampleInputs: schema
           .array(schema.record(schema.string(), schema.any()))
+          .optional()
           .describe("Representative input arguments for test verification"),
         expectedOutputs: schema
           .array(schema.any())
+          .optional()
           .describe("Expected outputs corresponding to the sample inputs"),
       } as any,
       async execute(args: any) {
@@ -88,12 +98,16 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
 
         const toolName = String(args.toolName)
         const intent = String(args.intent)
+        const sourceCode = args.sourceCode ? String(args.sourceCode) : undefined
+        const testCode = args.testCode ? String(args.testCode) : undefined
         const sampleInputs = (Array.isArray(args.sampleInputs) ? args.sampleInputs : []) as Record<string, unknown>[]
         const expectedOutputs = (Array.isArray(args.expectedOutputs) ? args.expectedOutputs : []) as unknown[]
 
         await toolMaker.synthesize({
           toolName,
           intent,
+          sourceCode,
+          testCode,
           sampleInputs,
           expectedOutputs,
         })
@@ -127,6 +141,83 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         return {
           title: `Synthesized & Hot-Loaded Tool: ${toolName}`,
           output: `Tool '${toolName}' was successfully synthesized, passed AST security validation, passed sandbox unit testing, and is now actively hot-loaded and available for invocation!`,
+        }
+      },
+    })
+
+    // Direct meta-tool: Allows the agent to directly submit model-authored tools with zero LLM sub-session latency
+    liveToolsMap["register_live_tool"] = tool({
+      description:
+        "Directly registers a model-authored TypeScript tool into OpenCode with zero background LLM latency. Validates AST security, verifies in isolated subprocess sandbox, and hot-loads into the live registry.",
+      args: {
+        toolName: schema
+          .string()
+          .regex(/^[a-z0-9_-]+$/)
+          .describe("Unique snake_case or kebab-case name of the new tool"),
+        description: schema
+          .string()
+          .describe("Clear description of what the tool accomplishes and its argument schema"),
+        sourceCode: schema
+          .string()
+          .describe(
+            "Complete TypeScript source code of the tool. Must import { tool } from '@opencode-ai/plugin/tool' and { z } from 'zod', and export the tool instance."
+          ),
+        testCode: schema
+          .string()
+          .optional()
+          .describe("Optional TypeScript unit test code using node:test or bun:test to verify the tool"),
+        sampleInputs: schema
+          .array(schema.record(schema.string(), schema.any()))
+          .optional()
+          .describe("Optional representative inputs for automated verification test"),
+      } as any,
+      async execute(args: any) {
+        if (!toolMaker || !toolRegistry) {
+          throw new Error("LiveTools subsystem is disabled.")
+        }
+
+        const toolName = String(args.toolName)
+        const desc = String(args.description)
+        const sourceCode = String(args.sourceCode)
+        const testCode = args.testCode ? String(args.testCode) : undefined
+        const sampleInputs = Array.isArray(args.sampleInputs) ? args.sampleInputs : []
+
+        await toolMaker.registerDirect({
+          toolName,
+          description: desc,
+          sourceCode,
+          testCode,
+          sampleInputs,
+        })
+
+        const metadata = {
+          id: randomUUID(),
+          name: toolName,
+          version: "1.0.0",
+          description: desc,
+          entrypoint: `src/${toolName}.ts`,
+          testFile: `tests/${toolName}.test.ts`,
+          status: "ACTIVE" as const,
+          parameters: {},
+          telemetry: {
+            totalInvocations: 0,
+            successCount: 0,
+            failureCount: 0,
+            avgDurationMs: 0,
+            healthScore: 1.0,
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+
+        const executable = await toolRegistry.registerAndLoad(metadata)
+        if (executable) {
+          liveToolsMap[toolName] = executable
+        }
+
+        return {
+          title: `Registered & Hot-Loaded Tool: ${toolName}`,
+          output: `Tool '${toolName}' was directly registered by the model, passed AST security validation, passed sandbox unit testing, and is now actively hot-loaded and available for invocation!`,
         }
       },
     })
@@ -264,7 +355,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         .join(", ")
 
       out.system.push(
-        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes.`
+        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes. To create a new tool, you can write the TypeScript code directly via 'register_live_tool' (fastest, zero background LLM latency) or delegate synthesis via 'synthesize_live_tool'.`
       )
     },
 

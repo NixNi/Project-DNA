@@ -56,8 +56,8 @@ export class LiveSkillHarvester implements ILiveSkillHarvester {
     const buf = this.buffers.get(sessionID)
     if (!buf || buf.finalResolution !== "SUCCESS") return false
 
-    // Eligible if >= 3 steps and includes tool interactions
-    return buf.steps.length >= 3
+    // Eligible if >= 2 steps and includes tool interactions
+    return buf.steps.length >= 2
   }
 
   public getTrace(sessionID: string): SessionTraceBuffer | null {

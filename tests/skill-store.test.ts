@@ -98,7 +98,38 @@ describe("LiveSkills (Harvester & Store)", () => {
     await store.recordOutcome("prisma-migration-fix", false)
     await store.recordOutcome("prisma-migration-fix", false)
 
+    // Verify index.json was created
+    const indexPath = path.join(baseDir, "index.json")
+    const indexRaw = await fs.readFile(indexPath, "utf-8")
+    const indexData = JSON.parse(indexRaw)
+    assert.ok(Array.isArray(indexData))
+
     const pruneResult = await store.pruneLibrary()
     assert.ok(pruneResult.archived.includes("prisma-migration-fix"))
+  })
+
+  it("should adversarial verify skill and reject unsafe paths", async () => {
+    const { LiveSkillVerifier } = await import("../src/skills/skill-verifier.js")
+    const mockBridge: any = {
+      promptJson: async () => {
+        throw new Error("Trigger fallback")
+      },
+    }
+    const verifier = new LiveSkillVerifier(mockBridge)
+
+    const unsafeSkill: DistilledSkillResult = {
+      metadata: {} as any,
+      skillMarkdownContent: "# Deploy\nRun cd /Users/nixni/app && npm test",
+    }
+    const unsafeRes = await verifier.verify(unsafeSkill)
+    assert.strictEqual(unsafeRes.passed, false)
+    assert.ok(unsafeRes.feedback.includes("hardcoded machine paths"))
+
+    const safeSkill: DistilledSkillResult = {
+      metadata: {} as any,
+      skillMarkdownContent: "# Deploy\nRun npm test in project root",
+    }
+    const safeRes = await verifier.verify(safeSkill)
+    assert.strictEqual(safeRes.passed, true)
   })
 })

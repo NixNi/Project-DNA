@@ -50,6 +50,7 @@ describe("ProjectDNAPlugin Integration", () => {
     assert.ok(hooks)
     assert.ok(hooks.tool)
     assert.ok((hooks.tool as any)["synthesize_live_tool"])
+    assert.ok((hooks.tool as any)["register_live_tool"])
     assert.ok(hooks["chat.message"])
     assert.ok(hooks["experimental.session.compacting"])
     assert.ok(hooks["experimental.chat.system.transform"])
@@ -104,6 +105,28 @@ describe("ProjectDNAPlugin Integration", () => {
     )
     // Should execute without throwing
     assert.ok(Array.isArray(compactOutput.context))
+
+    // Test register_live_tool direct model execution
+    const registerTool = (hooks.tool as any)["register_live_tool"]
+    assert.ok(registerTool)
+    const regResult = await registerTool.execute({
+      toolName: "ping_service",
+      description: "Pings a service",
+      sourceCode: `
+import { tool } from "@opencode-ai/plugin/tool"
+import { z } from "zod"
+
+export const ping_service = tool({
+  description: "Pings a service",
+  args: { host: z.string() },
+  async execute(args) {
+    return { output: "pong: " + args.host }
+  }
+})
+`,
+    })
+    assert.ok(regResult.output.includes("Tool 'ping_service' was directly registered"))
+    assert.ok((hooks.tool as any)["ping_service"])
 
     // Dispose cleanly
     await hooks.dispose!()

@@ -40,9 +40,20 @@ export interface ToolPackageMetadata {
 export interface ToolSynthesisRequest {
   toolName: string
   intent: string
-  sampleInputs: Record<string, unknown>[]
-  expectedOutputs: unknown[]
+  sampleInputs?: Record<string, unknown>[]
+  expectedOutputs?: unknown[]
+  sourceCode?: string
+  testCode?: string
   requiredDependencies?: string[]
+}
+
+export interface DirectToolRegistrationRequest {
+  toolName: string
+  description: string
+  sourceCode: string
+  testCode?: string
+  sampleInputs?: Record<string, unknown>[]
+  expectedOutputs?: unknown[]
 }
 
 export interface ToolSynthesisResult {
@@ -69,6 +80,11 @@ export interface ILiveToolMaker {
    * Synthesizes tool source and unit test suite
    */
   synthesize(request: ToolSynthesisRequest): Promise<ToolSynthesisResult>
+
+  /**
+   * Directly registers a model-authored tool implementation without background LLM delegation
+   */
+  registerDirect(request: DirectToolRegistrationRequest): Promise<ToolSynthesisResult>
 
   /**
    * Performs static AST security analysis on generated code

@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
+import { pathToFileURL } from "node:url"
 import { TelemetryCalculator } from "../core/telemetry.js"
 import type {
   ILiveToolRegistry,
@@ -39,7 +40,7 @@ export class LiveToolRegistry implements ILiveToolRegistry {
       : path.join(this.toolsDir, entrypoint)
 
     try {
-      const fileUrl = `file://${absPath}?t=${Date.now()}`
+      const fileUrl = `${pathToFileURL(absPath).href}?t=${Date.now()}`
       const mod = await import(fileUrl)
       const executable =
         mod.default ||

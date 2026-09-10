@@ -1,4 +1,5 @@
 import type { OpenCodeLLMBridge } from "../core/llm-bridge.js"
+import { LiveSkillVerifier } from "./skill-verifier.js"
 import type {
   ILiveSkillDistiller,
   SessionTraceBuffer,
@@ -8,7 +9,11 @@ import type {
 import { randomUUID } from "node:crypto"
 
 export class LiveSkillDistiller implements ILiveSkillDistiller {
-  constructor(private llmBridge: OpenCodeLLMBridge) {}
+  private verifier: LiveSkillVerifier
+
+  constructor(private llmBridge: OpenCodeLLMBridge) {
+    this.verifier = new LiveSkillVerifier(llmBridge)
+  }
 
   public async distill(trace: SessionTraceBuffer): Promise<DistilledSkillResult> {
     const prompt = `
@@ -45,17 +50,43 @@ Return a JSON object matching this schema:
 }
 `
 
-    const response = await this.llmBridge.promptJson<{
+    let response: {
       name: string
       description: string
       triggers: string[]
       tags: string[]
       skillMarkdownContent: string
-    }>({
-      systemPrompt: "You are an expert agent skill architect. Respond only with raw JSON.",
-      userPrompt: prompt,
-      useSmallModel: false,
-    })
+    }
+
+    try {
+      response = await this.llmBridge.promptJson<{
+        name: string
+        description: string
+        triggers: string[]
+        tags: string[]
+        skillMarkdownContent: string
+      }>({
+        systemPrompt: "You are an expert agent skill architect. Respond only with raw JSON.",
+        userPrompt: prompt,
+        useSmallModel: false,
+      })
+    } catch (primaryErr) {
+      try {
+        response = await this.llmBridge.promptJson<{
+          name: string
+          description: string
+          triggers: string[]
+          tags: string[]
+          skillMarkdownContent: string
+        }>({
+          systemPrompt: "You are an expert agent skill architect. Respond only with raw JSON.",
+          userPrompt: prompt,
+          useSmallModel: true,
+        })
+      } catch {
+        throw primaryErr
+      }
+    }
 
     const now = new Date().toISOString()
     const metadata: SkillPackageMetadata = {
@@ -87,51 +118,7 @@ Return a JSON object matching this schema:
   public async adversarialVerify(
     skill: DistilledSkillResult
   ): Promise<{ passed: boolean; score: number; feedback: string }> {
-    const prompt = `
-You are an Adversarial Skill Verifier evaluating an agent's newly distilled skill.
-Analyze this SKILL.md content for:
-1. Are there remaining hardcoded environment-specific paths? (Reject if present)
-2. Are the instructions deterministic and reproducible?
-3. Does it protect against dangerous side-effects (e.g. data loss, force pushes)?
-
-[SKILL CONTENT]
-${skill.skillMarkdownContent}
-
-Return a JSON object:
-{
-  "passed": <boolean>,
-  "score": <number between 0.0 and 1.0>,
-  "feedback": "<concise evaluation explanation>"
-}
-`
-
-    try {
-      const evaluation = await this.llmBridge.promptJson<{
-        passed: boolean
-        score: number
-        feedback: string
-      }>({
-        systemPrompt: "You are a strict security and quality reviewer. Output raw JSON only.",
-        userPrompt: prompt,
-        useSmallModel: true,
-      })
-
-      return {
-        passed: evaluation.passed && evaluation.score >= 0.7,
-        score: evaluation.score,
-        feedback: evaluation.feedback,
-      }
-    } catch {
-      // Heuristic fallback
-      const hasHardcodedPath = /\/Users\/|\/home\/|[A-Z]:\\/.test(skill.skillMarkdownContent)
-      return {
-        passed: !hasHardcodedPath,
-        score: hasHardcodedPath ? 0.4 : 0.85,
-        feedback: hasHardcodedPath
-          ? "Found hardcoded machine paths."
-          : "Passed heuristic safety check.",
-      }
-    }
+    return this.verifier.verify(skill)
   }
 
   public async mergeIntoExisting(

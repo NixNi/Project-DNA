@@ -83,13 +83,16 @@ export class DiagnosticBank implements IDiagnosticBank {
   }
 
   /**
-   * Normalizes raw error logs by stripping file paths, line numbers, and timestamps
+   * Normalizes raw error logs by stripping file paths (POSIX, Windows, UNC), line numbers, and timestamps
    */
   public normalizeErrorSignature(rawError: string): string {
     return rawError
       .split("\n")[0]
+      .replace(/[a-zA-Z]:[\\/][\w.\- /\\\\]+/g, "<path>")
+      .replace(/\\\\[\w.-]+\\[\w.\- /\\\\]+/g, "<path>")
       .replace(/\/[\w.-]+/g, "<path>")
       .replace(/:\d+:\d+/g, ":<line>:<col>")
+      .replace(/\(\d+,\s*\d+\)/g, "(<line>,<col>)")
       .replace(/0x[0-9a-fA-F]+/g, "<hex>")
       .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z/g, "<time>")
       .trim()

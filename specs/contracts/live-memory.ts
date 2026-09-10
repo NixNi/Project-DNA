@@ -80,7 +80,7 @@ export interface ILiveMemoryStore {
   /**
    * Initializes SQLite database and indexes
    */
-  init(workspacePath: string): Promise<void>
+  init(workspacePath?: string): Promise<void>
 
   /**
    * Creates an atomic memory card and triggers dynamic link generation

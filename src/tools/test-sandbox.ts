@@ -1,10 +1,33 @@
 import { spawn } from "node:child_process"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
+import { Platform } from "../core/platform.js"
 import type { ToolVerificationReport } from "../../specs/contracts/live-tools.js"
 
 export class TestSandbox {
   constructor(private workingDir: string) {}
+
+  private resolveRunner(absTestPath: string): { runnerCmd: string; runnerArgs: string[] } {
+    // 1. Prioritize Bun if available (natively runs TypeScript and ESM)
+    const candidateBunPaths = Platform.getCandidateBunPaths()
+    const foundBun = Platform.resolveBinary(candidateBunPaths, "")
+
+    if (foundBun) {
+      return {
+        runnerCmd: foundBun,
+        runnerArgs: ["test", absTestPath],
+      }
+    }
+
+    // 2. Fall back to Node. Ensure we never use OpenCode executable
+    const candidateNodePaths = Platform.getCandidateNodePaths()
+    const foundNode = Platform.resolveBinary(candidateNodePaths, "node")
+
+    return {
+      runnerCmd: foundNode,
+      runnerArgs: ["--test", absTestPath],
+    }
+  }
 
   /**
    * Runs the generated test suite in an isolated subprocess
@@ -14,9 +37,12 @@ export class TestSandbox {
     timeoutMs = 5000
   ): Promise<ToolVerificationReport> {
     const startTime = Date.now()
-    const isBun = typeof (globalThis as any).Bun !== "undefined"
-    const runnerCmd = isBun ? "bun" : "node"
-    const runnerArgs = isBun ? ["test", testFilePath] : ["--test", testFilePath]
+    const absTestPath = path.isAbsolute(testFilePath)
+      ? testFilePath
+      : path.resolve(this.workingDir, testFilePath)
+
+    const { runnerCmd, runnerArgs } = this.resolveRunner(absTestPath)
+    const env = Platform.buildEnrichedEnv(process.env, { NODE_ENV: "test" })
 
     return new Promise((resolve) => {
       let stdout = ""
@@ -25,15 +51,12 @@ export class TestSandbox {
 
       const child = spawn(runnerCmd, runnerArgs, {
         cwd: this.workingDir,
-        env: {
-          ...process.env,
-          NODE_ENV: "test",
-        },
+        env,
       })
 
       const timer = setTimeout(() => {
         timedOut = true
-        child.kill("SIGKILL")
+        Platform.safeKill(child)
       }, timeoutMs)
 
       child.stdout.on("data", (data) => {

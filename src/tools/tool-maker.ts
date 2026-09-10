@@ -8,6 +8,7 @@ import type {
   ToolSynthesisRequest,
   ToolSynthesisResult,
   ToolVerificationReport,
+  DirectToolRegistrationRequest,
 } from "../../specs/contracts/live-tools.js"
 
 export class LiveToolMaker implements ILiveToolMaker {
@@ -22,6 +23,17 @@ export class LiveToolMaker implements ILiveToolMaker {
   }
 
   public async synthesize(request: ToolSynthesisRequest): Promise<ToolSynthesisResult> {
+    if (request.sourceCode) {
+      return this.registerDirect({
+        toolName: request.toolName,
+        description: request.intent,
+        sourceCode: request.sourceCode,
+        testCode: request.testCode,
+        sampleInputs: request.sampleInputs,
+        expectedOutputs: request.expectedOutputs,
+      })
+    }
+
     const prompt = `
 You are the Tool Maker in the LATM (LLMs as Tool Makers) architecture.
 Synthesize a production-ready, reusable TypeScript tool for the OpenCode ecosystem.
@@ -53,11 +65,25 @@ Return a JSON object:
 }
 `
 
-    const synthesis = await this.llmBridge.promptJson<ToolSynthesisResult>({
-      systemPrompt: "You are an expert TypeScript tool architect. Respond only with raw JSON.",
-      userPrompt: prompt,
-      useSmallModel: false,
-    })
+    let synthesis: ToolSynthesisResult
+    try {
+      synthesis = await this.llmBridge.promptJson<ToolSynthesisResult>({
+        systemPrompt: "You are an expert TypeScript tool architect. Respond only with raw JSON.",
+        userPrompt: prompt,
+        useSmallModel: false,
+      })
+    } catch (primaryErr) {
+      // Fallback to small_model if primary model fails or times out
+      try {
+        synthesis = await this.llmBridge.promptJson<ToolSynthesisResult>({
+          systemPrompt: "You are an expert TypeScript tool architect. Respond only with raw JSON.",
+          userPrompt: prompt,
+          useSmallModel: true,
+        })
+      } catch {
+        throw primaryErr
+      }
+    }
 
     // 1. Static AST Security Validation
     const astResult = await this.validateAST(synthesis.sourceCode)
@@ -84,6 +110,80 @@ Return a JSON object:
     }
 
     return synthesis
+  }
+
+  public async registerDirect(
+    request: DirectToolRegistrationRequest
+  ): Promise<ToolSynthesisResult> {
+    // 1. Static AST Security Validation
+    const astResult = await this.validateAST(request.sourceCode)
+    if (!astResult.valid) {
+      throw new Error(
+        `Tool '${request.toolName}' failed security AST check: ${astResult.violations.join("; ")}`
+      )
+    }
+
+    // 2. Prepare unit test code (use provided or generate automated test)
+    const testCode = request.testCode ?? this.generateDeterministicTest(request)
+
+    // 3. Write to disk
+    const srcPath = path.join(this.toolsDir, "src", `${request.toolName}.ts`)
+    const testPath = path.join(this.toolsDir, "tests", `${request.toolName}.test.ts`)
+
+    await fs.mkdir(path.dirname(srcPath), { recursive: true })
+    await fs.mkdir(path.dirname(testPath), { recursive: true })
+
+    await fs.writeFile(srcPath, request.sourceCode, "utf-8")
+    await fs.writeFile(testPath, testCode, "utf-8")
+
+    // 4. Verify in sandbox
+    const report = await this.verifyInSandbox(request.toolName, testCode)
+    if (!report.passed) {
+      throw new Error(
+        `Direct tool verification failed in sandbox: ${report.errorOutput ?? "Unknown test failure"}`
+      )
+    }
+
+    return {
+      toolName: request.toolName,
+      sourceCode: request.sourceCode,
+      testCode,
+      zodSchemaDefinition: "",
+    }
+  }
+
+  private generateDeterministicTest(request: DirectToolRegistrationRequest): string {
+    const sampleInputs =
+      request.sampleInputs && request.sampleInputs.length > 0
+        ? request.sampleInputs
+        : [{}]
+
+    return `import { describe, it } from "node:test"
+import assert from "node:assert"
+import * as mod from "../src/${request.toolName}.js"
+
+describe("${request.toolName} direct live tool", () => {
+  it("should export an executable tool and run successfully", async () => {
+    const toolInstance =
+      (mod as any).default ||
+      (mod as any)["${request.toolName}"] ||
+      Object.values(mod).find(
+        (v: any) => typeof v === "object" && v !== null && "execute" in v
+      )
+    assert.ok(toolInstance, "Tool instance must be exported from module")
+    assert.strictEqual(
+      typeof toolInstance.execute,
+      "function",
+      "Tool execute must be an executable function"
+    )
+    const sampleInput = ${JSON.stringify(sampleInputs[0])}
+    const result = await toolInstance.execute(sampleInput, {
+      directory: process.cwd(),
+    })
+    assert.ok(result !== undefined && result !== null, "Tool must return a result object")
+  })
+})
+`
   }
 
   public async validateAST(sourceCode: string): Promise<{ valid: boolean; violations: string[] }> {
@@ -125,11 +225,24 @@ Return JSON:
 }
 `
 
-    const repaired = await this.llmBridge.promptJson<ToolSynthesisResult>({
-      systemPrompt: "You are an expert debugger and repair engineer. Respond only with JSON.",
-      userPrompt: prompt,
-      useSmallModel: false,
-    })
+    let repaired: ToolSynthesisResult
+    try {
+      repaired = await this.llmBridge.promptJson<ToolSynthesisResult>({
+        systemPrompt: "You are an expert debugger and repair engineer. Respond only with JSON.",
+        userPrompt: prompt,
+        useSmallModel: false,
+      })
+    } catch (primaryErr) {
+      try {
+        repaired = await this.llmBridge.promptJson<ToolSynthesisResult>({
+          systemPrompt: "You are an expert debugger and repair engineer. Respond only with JSON.",
+          userPrompt: prompt,
+          useSmallModel: true,
+        })
+      } catch {
+        throw primaryErr
+      }
+    }
 
     const astResult = await this.validateAST(repaired.sourceCode)
     if (!astResult.valid) {
