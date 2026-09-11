@@ -58,7 +58,41 @@ describe("LiveSkills (Harvester & Store)", () => {
     assert.strictEqual(harvester.getTrace(sessId), null)
   })
 
+  it("should update step output and retain substantive user goals across turns", () => {
+    const harvester = new LiveSkillHarvester()
+    const sessId = "sess-goal-test"
+
+    // Initial substantial goal
+    harvester.setUserGoal(sessId, "Build a high-performance Redis cache layer")
+    harvester.recordStep(sessId, {
+      tool: "bash",
+      args: { cmd: "docker run redis" },
+      output: "",
+      timestamp: new Date().toISOString(),
+    })
+
+    // Simulate tool.execute.after updating output
+    harvester.updateStepOutput(sessId, "bash", "Container started: a1b2c3d4", 0)
+
+    const trace = harvester.getTrace(sessId)
+    assert.ok(trace)
+    assert.strictEqual(trace?.steps[0].output, "Container started: a1b2c3d4")
+    assert.strictEqual(trace?.steps[0].exitCode, 0)
+
+    // Conversational acknowledgement should NOT overwrite the substantive goal
+    harvester.setUserGoal(sessId, "ok")
+    assert.strictEqual(trace?.userGoal, "Build a high-performance Redis cache layer")
+
+    harvester.setUserGoal(sessId, "proceed!")
+    assert.strictEqual(trace?.userGoal, "Build a high-performance Redis cache layer")
+
+    // A new substantive follow-up task should enrich the goal
+    harvester.setUserGoal(sessId, "Configure TTL eviction policy to LRU")
+    assert.ok(trace?.userGoal.includes("Redis cache layer -> Configure TTL"))
+  })
+
   it("should save, match, and record outcomes for skills", async () => {
+
     const store = new LiveSkillStore(activeDir, stagedDir, archiveDir)
 
     const mockSkill: DistilledSkillResult = {

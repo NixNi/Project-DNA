@@ -47,11 +47,13 @@ Requirements:
 Tool Implementation Rules:
 - Must import { tool } from "@opencode-ai/plugin/tool"
 - Must import { z } from "zod"
-- Must define arguments schema using Zod with descriptive comments.
-- Must export default or named tool instance: export const ${request.toolName} = tool({ description, args, async execute(args, ctx) { ... } })
-- Return standard ToolResult: { title?: string, output: string }
+- Must define arguments schema under 'args': args: { paramName: z.string().describe(...) } (NOTE: use 'args', DO NOT use 'input: z.object(...)')
+- Must export tool instance: export const ${request.toolName} = tool({ description, args, async execute(args, ctx) { return { output: "..." } } })
+- Return standard ToolResult: { title?: string, output: string } (Always return a string in 'output' or JSON.stringify structured objects)
 
 Test Implementation Rules:
+- The test file will run from .opencode/dna/tools/tests/
+- YOU MUST import the tool under test using: import * as mod from "../src/${request.toolName}.js"
 - Write unit tests using node:test / bun:test and node:assert
 - Import the tool and execute it against sample inputs
 - Assert the expected outputs
@@ -93,7 +95,10 @@ Return a JSON object:
       )
     }
 
-    // 2. Write to disk and verify in sandbox
+    // 2. Normalize test code imports to ensure correct relative paths
+    const testCode = this.normalizeTestCodeImports(request.toolName, synthesis.testCode)
+
+    // 3. Write to disk and verify in sandbox
     const srcPath = path.join(this.toolsDir, "src", `${request.toolName}.ts`)
     const testPath = path.join(this.toolsDir, "tests", `${request.toolName}.test.ts`)
 
@@ -101,15 +106,18 @@ Return a JSON object:
     await fs.mkdir(path.dirname(testPath), { recursive: true })
 
     await fs.writeFile(srcPath, synthesis.sourceCode, "utf-8")
-    await fs.writeFile(testPath, synthesis.testCode, "utf-8")
+    await fs.writeFile(testPath, testCode, "utf-8")
 
-    const report = await this.verifyInSandbox(request.toolName, synthesis.testCode)
+    const report = await this.verifyInSandbox(request.toolName, testCode)
     if (!report.passed) {
       // Attempt self-repair
       return this.repair(request.toolName, report.errorOutput ?? "Unknown test failure")
     }
 
-    return synthesis
+    return {
+      ...synthesis,
+      testCode,
+    }
   }
 
   public async registerDirect(
@@ -123,8 +131,9 @@ Return a JSON object:
       )
     }
 
-    // 2. Prepare unit test code (use provided or generate automated test)
-    const testCode = request.testCode ?? this.generateDeterministicTest(request)
+    // 2. Prepare and normalize unit test code
+    const rawTestCode = request.testCode ?? this.generateDeterministicTest(request)
+    const testCode = this.normalizeTestCodeImports(request.toolName, rawTestCode)
 
     // 3. Write to disk
     const srcPath = path.join(this.toolsDir, "src", `${request.toolName}.ts`)
@@ -143,6 +152,7 @@ Return a JSON object:
         `Direct tool verification failed in sandbox: ${report.errorOutput ?? "Unknown test failure"}`
       )
     }
+
 
     return {
       toolName: request.toolName,
@@ -249,14 +259,33 @@ Return JSON:
       throw new Error(`Repaired tool failed AST check: ${astResult.violations.join("; ")}`)
     }
 
+    const repairedTestCode = this.normalizeTestCodeImports(toolName, repaired.testCode)
     await fs.writeFile(srcPath, repaired.sourceCode, "utf-8")
-    await fs.writeFile(testPath, repaired.testCode, "utf-8")
+    await fs.writeFile(testPath, repairedTestCode, "utf-8")
 
     const report = await this.sandbox.runTestFile(testPath)
     if (!report.passed) {
       throw new Error(`Repaired tool failed verification again: ${report.errorOutput}`)
     }
 
-    return repaired
+    return {
+      ...repaired,
+      testCode: repairedTestCode,
+    }
+  }
+
+  public static normalizeTestCodeImports(toolName: string, testCode: string): string {
+    // Automatically normalizes relative import paths in model-authored test suites
+    // so tests running in .opencode/dna/tools/tests/ correctly resolve the tool in ../src/
+    const regex = new RegExp(
+      `from\\s+["'](?:\\.{1,2}\\/)*(?:src\\/)?${toolName}(?:\\.[jt]s)?["']`,
+      "g"
+    )
+    return testCode.replace(regex, `from "../src/${toolName}.js"`)
+  }
+
+  public normalizeTestCodeImports(toolName: string, testCode: string): string {
+    return LiveToolMaker.normalizeTestCodeImports(toolName, testCode)
   }
 }
+

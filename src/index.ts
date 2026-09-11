@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto"
 import { ConfigManager, type ProjectDNAConfig } from "./core/config.js"
 import { UniversalSqliteDatabase } from "./core/sqlite-adapter.js"
 import { OpenCodeLLMBridge } from "./core/llm-bridge.js"
+import { PluginNotifier } from "./core/notifier.js"
 
 import { MemoryStore } from "./memory/memory-store.js"
 import { DynamicLinkGenerator } from "./memory/link-generator.js"
@@ -32,9 +33,11 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
   await configManager.initializeStorage()
   const cfg = configManager.current
 
-  // 2. Initialize Foundation Bridges & Database
+  // 2. Initialize Foundation Bridges, Database & Notification Service
   const db = new UniversalSqliteDatabase(configManager.memoryDbPath)
   const llmBridge = new OpenCodeLLMBridge(input.client, cfg.synthesisTimeoutMs)
+  const notifier = new PluginNotifier(input.client)
+
 
   // 3. Conditionally Initialize LiveMemory Subsystem
   let memoryStore: MemoryStore | undefined
@@ -136,11 +139,23 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         const executable = await toolRegistry.registerAndLoad(metadata)
         if (executable) {
           liveToolsMap[toolName] = executable
+          // Extract argument descriptions into metadata parameters for catalog discovery
+          const execObj = executable as any
+          if (execObj?.args && typeof execObj.args === "object") {
+            metadata.parameters = Object.keys(execObj.args).reduce((acc: any, k: string) => {
+              acc[k] = execObj.args[k]?.description || "parameter"
+              return acc
+            }, {})
+            await toolRegistry.registerTool(metadata, executable)
+          }
         }
+
+        // Notify user via OpenCode TUI toast
+        await notifier.notifyToolCreated(toolName, "synthesized")
 
         return {
           title: `Synthesized & Hot-Loaded Tool: ${toolName}`,
-          output: `Tool '${toolName}' was successfully synthesized, passed AST security validation, passed sandbox unit testing, and is now actively hot-loaded and available for invocation!`,
+          output: `Tool '${toolName}' was successfully synthesized, passed AST security validation, passed sandbox unit testing, and is now actively hot-loaded and available for invocation via invoke_live_tool!`,
         }
       },
     })
@@ -148,7 +163,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
     // Direct meta-tool: Allows the agent to directly submit model-authored tools with zero LLM sub-session latency
     liveToolsMap["register_live_tool"] = tool({
       description:
-        "Directly registers a model-authored TypeScript tool into OpenCode with zero background LLM latency. Validates AST security, verifies in isolated subprocess sandbox, and hot-loads into the live registry.",
+        "Directly registers a model-authored TypeScript tool into OpenCode with zero background LLM latency. Validates AST security, verifies in isolated subprocess sandbox, and hot-loads into the live registry. Tool source must use 'args: { ... }' with zod schemas (do not use 'input: z.object'). Unit tests automatically resolve relative imports.",
       args: {
         toolName: schema
           .string()
@@ -160,12 +175,12 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         sourceCode: schema
           .string()
           .describe(
-            "Complete TypeScript source code of the tool. Must import { tool } from '@opencode-ai/plugin/tool' and { z } from 'zod', and export the tool instance."
+            "Complete TypeScript source code of the tool. Must import { tool } from '@opencode-ai/plugin/tool' and { z } from 'zod', export the tool instance with args schema and execute(args, ctx), and return { output: string } or a result object."
           ),
         testCode: schema
           .string()
           .optional()
-          .describe("Optional TypeScript unit test code using node:test or bun:test to verify the tool"),
+          .describe("Optional TypeScript unit test code using node:test or bun:test. If omitted, a robust test suite is auto-generated. If provided, imports from '../src/<toolName>.js'."),
         sampleInputs: schema
           .array(schema.record(schema.string(), schema.any()))
           .optional()
@@ -213,15 +228,77 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         const executable = await toolRegistry.registerAndLoad(metadata)
         if (executable) {
           liveToolsMap[toolName] = executable
+          // Extract argument descriptions into metadata parameters
+          const execObj = executable as any
+          if (execObj?.args && typeof execObj.args === "object") {
+            metadata.parameters = Object.keys(execObj.args).reduce((acc: any, k: string) => {
+              acc[k] = execObj.args[k]?.description || "parameter"
+              return acc
+            }, {})
+            await toolRegistry.registerTool(metadata, executable)
+          }
         }
+
+        // Notify user via OpenCode TUI toast
+        await notifier.notifyToolCreated(toolName, "registered")
 
         return {
           title: `Registered & Hot-Loaded Tool: ${toolName}`,
-          output: `Tool '${toolName}' was directly registered by the model, passed AST security validation, passed sandbox unit testing, and is now actively hot-loaded and available for invocation!`,
+          output: `Tool '${toolName}' was directly registered by the model, passed AST security validation, passed sandbox unit testing, and is now actively hot-loaded and available for invocation via invoke_live_tool!`,
+        }
+      },
+    })
+
+    // Dispatcher meta-tool: Guarantees 100% LLM KV cache preservation by executing tools via fixed gateway
+    liveToolsMap["invoke_live_tool"] = tool({
+      description:
+        "Executes an active synthesized LiveTool by name with provided arguments. Guarantees 100% LLM KV cache preservation by dispatching dynamically without modifying the root tool schema definitions. Example: invoke_live_tool({ toolName: 'system_info', args: {} })",
+      args: {
+        toolName: schema
+          .string()
+          .regex(/^[a-z0-9_-]+$/)
+          .describe("The unique name of the synthesized live tool to execute"),
+        args: schema
+          .record(schema.string(), schema.any())
+          .optional()
+          .describe("Key-value arguments to pass to the tool execute function (default: {})"),
+      } as any,
+      async execute(callArgs: any, context: any) {
+        if (!toolRegistry) {
+          throw new Error("LiveTools subsystem is disabled.")
+        }
+        const toolName = String(callArgs.toolName)
+        const toolArgs =
+          callArgs.args && typeof callArgs.args === "object" ? callArgs.args : {}
+        const rawResult = await toolRegistry.invokeTool(toolName, toolArgs, context)
+        // Ensure result is fully normalized with output: string so OpenCode's host runner never crashes
+        return LiveToolRegistry.normalizeToolResult(toolName, rawResult)
+      },
+    })
+
+    // Catalog meta-tool: Inspect available synthesized tools without altering prompt prefix
+    liveToolsMap["list_live_tools"] = tool({
+      description:
+        "Lists all active synthesized and registered LiveTools, their descriptions, expected parameter schemas, and health telemetry without mutating the LLM prompt prefix.",
+      args: {} as any,
+      async execute() {
+        if (!toolRegistry) {
+          throw new Error("LiveTools subsystem is disabled.")
+        }
+        const tools = toolRegistry.listTools()
+        return {
+          title: `Active LiveTools (${tools.length})`,
+          output:
+            tools.length > 0
+              ? JSON.stringify(tools, null, 2)
+              : "No synthesized live tools currently registered. Use 'synthesize_live_tool' or 'register_live_tool' to create one.",
+          metadata: { count: tools.length },
         }
       },
     })
   }
+
+
 
   // 5. Conditionally Initialize LiveSkills Subsystem
   let skillHarvester: LiveSkillHarvester | undefined
@@ -239,20 +316,42 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
     await skillStore.loadActiveSkills()
   }
 
+  // Register Knowledge Graph query tool if LiveMemory is enabled
+  if (cfg.enableLiveMemory && memoryStore) {
+    const schema = tool.schema ?? z
+    liveToolsMap["query_knowledge_graph"] = tool({
+      description:
+        "Searches the Project DNA Zettelkasten knowledge graph for atomic knowledge cards, architectural decisions, and diagnostic recovery procedures.",
+      args: {
+        query: schema.string().describe("Search query, keywords, or error signature"),
+        limit: schema.number().optional().describe("Maximum number of cards to return (default: 5)"),
+      } as any,
+      async execute(args: any) {
+        if (!memoryStore) throw new Error("LiveMemory subsystem is disabled.")
+        const cards = await memoryStore.queryRelevant(String(args.query), args.limit ?? 5)
+        return {
+          title: `Knowledge Cards (${cards.length})`,
+          output:
+            cards.length > 0
+              ? JSON.stringify(cards, null, 2)
+              : "No matching knowledge cards found in graph.",
+          metadata: { count: cards.length },
+        }
+      },
+    })
+  }
+
   // 6. Assemble OpenCode Hooks
   const hooks: Hooks = {
     // Dynamic Tool Registry exposed to OpenCode
     tool: liveToolsMap as any,
 
-    // Dynamic schema & description mutation
+    // Dynamic schema & description mutation: Keep descriptions immutable across turns to preserve KV cache
     "tool.definition": async (inp, out) => {
       if (!toolRegistry) return
       const meta = toolRegistry.getMetadata(inp.toolID)
-      if (meta) {
+      if (meta && meta.description) {
         out.description = meta.description
-        if (meta.parameters && Object.keys(meta.parameters).length > 0) {
-          out.parameters = meta.parameters
-        }
       }
     },
 
@@ -270,11 +369,17 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
 
     // Execution Interception: Telemetry, Error detection, and Recovery logging
     "tool.execute.after": async (inp, out) => {
-      const isError = /error|failed|exception/i.test(out.output ?? "")
-      const durationMs = 100 // Estimate if not directly provided
+      const outputText = out.output ?? ""
+      const titleText = out.title ?? ""
+      const hasErrorMetadata =
+        Boolean(out.metadata?.error) ||
+        (typeof out.metadata?.exitCode === "number" && out.metadata.exitCode !== 0)
+      const titleIndicatesError = /failed|failure|error|exception/i.test(titleText)
+      const outputStartsWithError = /^(error|fatal|fail(ed|ure)?):\s+/i.test(outputText.trim())
+      const isError = hasErrorMetadata || titleIndicatesError || outputStartsWithError
 
-      if (toolRegistry && toolRegistry.isLiveTool(inp.tool)) {
-        await toolRegistry.recordExecution(inp.tool, !isError, durationMs)
+      if (skillHarvester) {
+        skillHarvester.updateStepOutput(inp.sessionID, inp.tool, outputText)
       }
 
       if (diagnosticBank) {
@@ -282,7 +387,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
           await diagnosticBank.recordFailure({
             sessionID: inp.sessionID,
             toolName: inp.tool,
-            rawError: out.output ?? "Unknown tool error",
+            rawError: outputText || "Unknown tool error",
             resolved: false,
           })
         } else {
@@ -295,52 +400,25 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
       }
     },
 
-    // Chat Message Hook: Context enrichment with Top-K Memory Cards & Relevant Skills
+    // Command Interception: Buffer CLI executions as trace steps
+    "command.execute.before": async (inp) => {
+      if (skillHarvester) {
+        skillHarvester.recordStep(inp.sessionID, {
+          tool: `command:${inp.command}`,
+          args: { arguments: inp.arguments },
+          output: "",
+          timestamp: new Date().toISOString(),
+        })
+      }
+    },
+
+    // Chat Message Hook: Step buffering & intent capture (never mutates user prompt to preserve KV cache and UI clarity)
     "chat.message": async (inp, out) => {
       const textPart = out.parts.find((p) => p.type === "text")
       const userText = textPart && "text" in textPart ? (textPart.text as string) : ""
 
-      if (userText) {
-        if (skillHarvester) {
-          skillHarvester.setUserGoal(inp.sessionID, userText)
-        }
-
-        const enrichments: string[] = []
-
-        // Retrieve relevant skills if enabled
-        if (skillStore) {
-          const matchedSkills = await skillStore.matchSkills(userText)
-          const topSkills = matchedSkills.slice(0, cfg.maxInjectedSkills)
-          if (topSkills.length > 0) {
-            enrichments.push(
-              `### Project DNA: Relevant Procedural Skills\n` +
-                topSkills.map((s) => s.injectedGuideline).join("\n\n")
-            )
-          }
-        }
-
-        // Retrieve relevant Zettelkasten memory cards if enabled
-        if (memoryStore) {
-          const relevantCards = await memoryStore.queryRelevant(userText, cfg.maxInjectedNotes)
-          if (relevantCards.length > 0) {
-            enrichments.push(
-              `### Project DNA: Interconnected Knowledge Cards\n` +
-                relevantCards
-                  .map(
-                    (c) =>
-                      `- [${c.category}] **${c.title}**: ${c.insight} (Tags: ${c.tags.join(", ")})`
-                  )
-                  .join("\n")
-            )
-          }
-        }
-
-        if (enrichments.length > 0) {
-          out.parts.push({
-            type: "text",
-            text: `\n\n${enrichments.join("\n\n")}`,
-          } as any)
-        }
+      if (userText && skillHarvester) {
+        skillHarvester.setUserGoal(inp.sessionID, userText)
       }
     },
 
@@ -355,7 +433,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         .join(", ")
 
       out.system.push(
-        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes. To create a new tool, you can write the TypeScript code directly via 'register_live_tool' (fastest, zero background LLM latency) or delegate synthesis via 'synthesize_live_tool'.`
+        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes. Previously created live tools from past sessions are automatically loaded as normal first-class tools with live statistics (e.g. project_test_runner, system_info, hello_world) and can be executed directly or via 'invoke_live_tool'. Newly synthesized tools in this session are available immediately. To create new tools, use 'register_live_tool' or 'synthesize_live_tool'.`
       )
     },
 
@@ -390,9 +468,14 @@ ${
     // Global Event Dispatcher: Non-blocking synthesis on turn idle
     event: async ({ event }) => {
       const ev = event as any
-      switch (ev.type) {
+      const eventType = ev.type ?? ""
+      const properties = ev.properties ?? {}
+      const sessionID = properties.sessionID ?? ev.sessionID
+
+      switch (eventType) {
+        case "session.idle":
         case "EventSessionIdle": {
-          const sessionID = ev.sessionID
+          if (!sessionID) break
 
           // 1. Skill harvesting with organic resolution evaluation
           if (skillHarvester && skillDistiller && skillStore) {
@@ -409,9 +492,21 @@ ${
                   const verified = await skillDistiller.adversarialVerify(distilled)
                   if (verified.passed) {
                     await skillStore.saveSkill(distilled)
+                    await notifier.notifySkillHarvested(
+                      distilled.metadata.name,
+                      distilled.metadata.confidenceScore
+                    )
+                  } else {
+                    console.warn(
+                      `[Project DNA] Skill verification failed for '${distilled.metadata.name}':`,
+                      verified.feedback
+                    )
                   }
-                } catch {
-                  // Synthesis failure non-blocking
+                } catch (err) {
+                  console.warn(
+                    `[Project DNA] Skill distillation failed for session ${sessionID}:`,
+                    err
+                  )
                 } finally {
                   skillHarvester.clearTrace(sessionID)
                 }
@@ -423,31 +518,47 @@ ${
           if (diagnosticBank && memoryStore) {
             try {
               await diagnosticBank.distillToMemory(memoryStore)
-            } catch {
-              // Non-blocking
+            } catch (err) {
+              console.warn("[Project DNA] Diagnostic distillation error:", err)
             }
           }
 
           break
         }
 
+        case "session.error":
         case "EventSessionError": {
-          if (diagnosticBank) {
+          if (diagnosticBank && sessionID) {
             await diagnosticBank.recordFailure({
-              sessionID: ev.sessionID,
-              rawError: ev.error ?? "Session runtime error",
+              sessionID,
+              rawError: properties.error ?? ev.error ?? "Session runtime error",
               resolved: false,
             })
           }
           break
         }
 
+        case "command.executed":
         case "EventCommandExecuted": {
-          if (diagnosticBank && ev.exitCode !== 0) {
+          const cmdName = properties.name ?? ev.command ?? "shell"
+          const cmdArgs = properties.arguments ?? ev.arguments ?? ""
+          const cmdOutput = properties.output ?? ev.output ?? ""
+          const exitCode = properties.exitCode ?? ev.exitCode
+
+          if (skillHarvester && sessionID) {
+            skillHarvester.updateStepOutput(
+              sessionID,
+              `command:${cmdName}`,
+              cmdOutput,
+              exitCode
+            )
+          }
+
+          if (diagnosticBank && exitCode !== undefined && exitCode !== 0) {
             await diagnosticBank.recordFailure({
-              sessionID: ev.sessionID ?? "global",
-              command: ev.command,
-              rawError: ev.output ?? `Command exited with code ${ev.exitCode}`,
+              sessionID: sessionID ?? "global",
+              command: `${cmdName} ${cmdArgs}`.trim(),
+              rawError: cmdOutput || `Command exited with code ${exitCode}`,
               resolved: false,
             })
           }
@@ -455,6 +566,7 @@ ${
         }
       }
     },
+
 
     // Dispose Hook: Flushes caches and closes SQLite database
     dispose: async () => {

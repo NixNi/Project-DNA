@@ -75,9 +75,25 @@ export interface ILiveSkillHarvester {
   recordStep(sessionID: string, step: ExecutionTraceStep): void
 
   /**
+   * Updates output and status of the latest matching step
+   */
+  updateStepOutput?(sessionID: string, toolName: string, output: string, exitCode?: number): void
+
+  /**
+   * Sets or enriches the user's high-level intent for the session
+   */
+  setUserGoal?(sessionID: string, goal: string): void
+
+  /**
+   * Sets explicit session resolution
+   */
+  setResolution?(sessionID: string, resolution: "SUCCESS" | "FAILED"): void
+
+  /**
    * Evaluates if a session trace satisfies the criteria for distillation
    */
   isEligibleForHarvest(sessionID: string): boolean
+
 
   /**
    * Retrieves full trace buffer for distillation

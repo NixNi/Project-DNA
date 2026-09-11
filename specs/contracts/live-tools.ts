@@ -127,7 +127,26 @@ export interface ILiveToolRegistry {
   recordExecution(toolName: string, success: boolean, durationMs: number): Promise<void>
 
   /**
+   * Directly invokes a registered live tool by name
+   */
+  invokeTool?(toolName: string, args: Record<string, unknown>, context?: unknown): Promise<unknown>
+
+  /**
+   * Returns list of registered tool summaries
+   */
+  listTools?(): Array<{
+    name: string
+    description: string
+    parameters?: Record<string, unknown>
+    status: ToolLifecycleStatus
+    totalInvocations: number
+    healthScore: number
+  }>
+
+
+  /**
    * Checks if a tool should be flagged as degraded or archived
    */
   evaluateHealth(toolName: string): Promise<ToolLifecycleStatus>
 }
+

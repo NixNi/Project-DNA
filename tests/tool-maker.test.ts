@@ -145,4 +145,78 @@ export const echo_tool = tool({
     assert.strictEqual(llmCalled, false)
     assert.strictEqual(res.toolName, "echo_tool")
   })
+
+  it("should normalize model-provided test code import paths", () => {
+    const rawTest1 = `import { my_tool } from "./my_tool"`
+    assert.strictEqual(
+      LiveToolMaker.normalizeTestCodeImports("my_tool", rawTest1),
+      `import { my_tool } from "../src/my_tool.js"`
+    )
+
+    const rawTest2 = `import { my_tool } from "../../src/my_tool.js"`
+    assert.strictEqual(
+      LiveToolMaker.normalizeTestCodeImports("my_tool", rawTest2),
+      `import { my_tool } from "../src/my_tool.js"`
+    )
+
+    const rawTest3 = `import { my_tool } from "../src/my_tool"`
+    assert.strictEqual(
+      LiveToolMaker.normalizeTestCodeImports("my_tool", rawTest3),
+      `import { my_tool } from "../src/my_tool.js"`
+    )
+
+    const rawTest4 = `import { my_tool } from "./my_tool.js"`
+    assert.strictEqual(
+      LiveToolMaker.normalizeTestCodeImports("my_tool", rawTest4),
+      `import { my_tool } from "../src/my_tool.js"`
+    )
+
+    // Unrelated imports untouched
+    const rawTest5 = `import { describe, it } from "node:test"\nimport assert from "node:assert"`
+    assert.strictEqual(
+      LiveToolMaker.normalizeTestCodeImports("my_tool", rawTest5),
+      rawTest5
+    )
+  })
+
+  it("should successfully register and sandbox-test a tool when model writes ./ relative imports in testCode", async () => {
+    const mockBridge: any = {}
+    const toolMaker = new LiveToolMaker(mockBridge, testWorkspace, toolsDir)
+
+    const sourceCode = `
+import { tool } from "@opencode-ai/plugin/tool"
+import { z } from "zod"
+
+export const sample_tool = tool({
+  description: "Sample",
+  args: {},
+  async execute() {
+    return { output: "ok" }
+  }
+})
+`
+
+    // Model writes import from "./sample_tool" as seen in session-ses_f746.md
+    const testCode = `
+import { describe, it } from "node:test"
+import assert from "node:assert"
+import { sample_tool } from "./sample_tool"
+
+describe("sample_tool test", () => {
+  it("executes cleanly", async () => {
+    const res = await sample_tool.execute({}, { directory: process.cwd() })
+    assert.strictEqual(res.output, "ok")
+  })
+})
+`
+
+    const res = await toolMaker.registerDirect({
+      toolName: "sample_tool",
+      description: "Sample tool",
+      sourceCode,
+      testCode,
+    })
+
+    assert.strictEqual(res.toolName, "sample_tool")
+  })
 })

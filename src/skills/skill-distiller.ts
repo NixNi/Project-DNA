@@ -50,36 +50,17 @@ Return a JSON object matching this schema:
 }
 `
 
-    let response: {
-      name: string
-      description: string
-      triggers: string[]
-      tags: string[]
-      skillMarkdownContent: string
-    }
-
+    let rawText: string
     try {
-      response = await this.llmBridge.promptJson<{
-        name: string
-        description: string
-        triggers: string[]
-        tags: string[]
-        skillMarkdownContent: string
-      }>({
-        systemPrompt: "You are an expert agent skill architect. Respond only with raw JSON.",
+      rawText = await this.llmBridge.prompt({
+        systemPrompt: "You are an expert agent skill architect. Respond with valid JSON.",
         userPrompt: prompt,
         useSmallModel: false,
       })
     } catch (primaryErr) {
       try {
-        response = await this.llmBridge.promptJson<{
-          name: string
-          description: string
-          triggers: string[]
-          tags: string[]
-          skillMarkdownContent: string
-        }>({
-          systemPrompt: "You are an expert agent skill architect. Respond only with raw JSON.",
+        rawText = await this.llmBridge.prompt({
+          systemPrompt: "You are an expert agent skill architect. Respond with valid JSON.",
           userPrompt: prompt,
           useSmallModel: true,
         })
@@ -87,6 +68,9 @@ Return a JSON object matching this schema:
         throw primaryErr
       }
     }
+
+    const response = this.parseDistillationResponse(rawText)
+
 
     const now = new Date().toISOString()
     const metadata: SkillPackageMetadata = {
@@ -130,4 +114,100 @@ Return a JSON object matching this schema:
     distilled.metadata.version = "1.1.0"
     return distilled
   }
+
+  private parseDistillationResponse(rawText: string): {
+    name: string
+    description: string
+    triggers: string[]
+    tags: string[]
+    skillMarkdownContent: string
+  } {
+    const cleaned = rawText
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim()
+
+    try {
+      const parsed = JSON.parse(cleaned)
+      if (parsed.name && parsed.skillMarkdownContent) {
+        return {
+          name: String(parsed.name).toLowerCase().replace(/[^a-z0-9_-]/g, "-"),
+          description: String(parsed.description || "Procedural skill"),
+          triggers: Array.isArray(parsed.triggers)
+            ? parsed.triggers.map(String)
+            : ["custom task"],
+          tags: Array.isArray(parsed.tags) ? parsed.tags.map(String) : ["procedural"],
+          skillMarkdownContent: String(parsed.skillMarkdownContent),
+        }
+      }
+    } catch {
+      // JSON parse failed due to unescaped quotes or newlines, fallback to pattern matching
+    }
+
+    // Regex fallback extraction
+    const nameMatch = rawText.match(/"name"\s*:\s*"([^"]+)"/)
+    const descMatch = rawText.match(/"description"\s*:\s*"([^"]+)"/)
+    const triggersMatch = rawText.match(/"triggers"\s*:\s*\[([\s\S]*?)\]/)
+    const tagsMatch = rawText.match(/"tags"\s*:\s*\[([\s\S]*?)\]/)
+
+    const name = nameMatch
+      ? nameMatch[1].toLowerCase().replace(/[^a-z0-9_-]/g, "-")
+      : "procedural-skill-" + Date.now()
+    const description = descMatch ? descMatch[1] : "Extracted procedural skill"
+
+    const triggers: string[] = []
+    if (triggersMatch) {
+      const parts = triggersMatch[1].match(/"([^"]+)"/g)
+      if (parts) triggers.push(...parts.map((p) => p.replace(/"/g, "")))
+    }
+    if (triggers.length === 0) triggers.push(name.replace(/-/g, " "))
+
+    const tags: string[] = []
+    if (tagsMatch) {
+      const parts = tagsMatch[1].match(/"([^"]+)"/g)
+      if (parts) tags.push(...parts.map((p) => p.replace(/"/g, "")))
+    }
+    if (tags.length === 0) tags.push("procedural", "automated")
+
+    let skillMarkdownContent = ""
+    const contentMatch = rawText.match(
+      /"skillMarkdownContent"\s*:\s*"([\s\S]*?)"\s*[\}\]]?\s*$/
+    )
+    if (contentMatch) {
+      skillMarkdownContent = contentMatch[1]
+        .replace(/\\n/g, "\n")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\")
+    } else {
+      skillMarkdownContent = `---
+name: ${name}
+description: ${description}
+version: 1.0.0
+triggers:
+${triggers.map((t) => `  - "${t}"`).join("\n")}
+tags:
+${tags.map((t) => `  - "${t}"`).join("\n")}
+confidence_score: 0.9
+---
+
+# ${description}
+
+## Overview
+Procedural execution pattern synthesized by Project DNA.
+
+## Procedure
+Follow the steps outlined in the execution trace.
+`
+    }
+
+    return {
+      name,
+      description,
+      triggers,
+      tags,
+      skillMarkdownContent,
+    }
+  }
 }
+

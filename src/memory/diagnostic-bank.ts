@@ -18,6 +18,9 @@ export class DiagnosticBank implements IDiagnosticBank {
     resolved?: boolean
   }): Promise<void> {
     const signature = trace.errorSignature ?? this.normalizeErrorSignature(trace.rawError)
+    if (!signature || signature.length < 3 || !/[a-zA-Z0-9]/.test(signature) || /^[{}\[\](),;."'\s]+$/.test(signature)) {
+      return
+    }
     const newTrace: DiagnosticTrace = {
       id: randomUUID(),
       sessionID: trace.sessionID,
@@ -86,8 +89,12 @@ export class DiagnosticBank implements IDiagnosticBank {
    * Normalizes raw error logs by stripping file paths (POSIX, Windows, UNC), line numbers, and timestamps
    */
   public normalizeErrorSignature(rawError: string): string {
-    return rawError
-      .split("\n")[0]
+    const lines = rawError
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !/^[{}\[\](),;."'\s]+$/.test(l))
+    const firstLine = lines[0] ?? rawError.split("\n")[0] ?? ""
+    return firstLine
       .replace(/[a-zA-Z]:[\\/][\w.\- /\\\\]+/g, "<path>")
       .replace(/\\\\[\w.-]+\\[\w.\- /\\\\]+/g, "<path>")
       .replace(/\/[\w.-]+/g, "<path>")
