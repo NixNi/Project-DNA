@@ -55,7 +55,7 @@ export function createLiveMetaTools(ctx: LiveMetaToolsContext): Record<string, u
       sampleInputs: schema
         .array(schema.record(schema.string(), schema.any()))
         .optional()
-        .describe("Representative input arguments for test verification"),
+        .describe("Optional representative inputs for test verification. If omitted, mock inputs are automatically synthesized from the tool's args schema."),
       expectedOutputs: schema
         .array(schema.any())
         .optional()
@@ -141,7 +141,7 @@ export function createLiveMetaTools(ctx: LiveMetaToolsContext): Record<string, u
       sampleInputs: schema
         .array(schema.record(schema.string(), schema.any()))
         .optional()
-        .describe("Optional representative inputs for automated verification test"),
+        .describe("Optional representative inputs for automated verification test. If omitted, mock inputs are automatically synthesized from the tool's args schema."),
     } as any,
     async execute(args: any) {
       const toolName = String(args.toolName)

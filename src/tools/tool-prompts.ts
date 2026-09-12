@@ -133,6 +133,88 @@ Return JSON:
 `
 }
 
+export function synthesizeMockValue(schema: any, depth = 0): any {
+  if (!schema || depth > 5) return "test"
+  const type = schema.type || schema.def?.type || schema._def?.type || schema._def?.typeName || ""
+  const typeStr = String(type).toLowerCase()
+
+  if (typeStr.includes("optional")) {
+    return undefined
+  }
+  if (typeStr.includes("nullable")) {
+    return null
+  }
+  if (typeof schema.def?.defaultValue === "function") {
+    try {
+      return schema.def.defaultValue()
+    } catch {}
+  }
+  if (typeof schema._def?.defaultValue === "function") {
+    try {
+      return schema._def.defaultValue()
+    } catch {}
+  }
+  if (schema.def?.innerType || schema._def?.innerType) {
+    return synthesizeMockValue(schema.def?.innerType || schema._def?.innerType, depth + 1)
+  }
+  if (typeStr.includes("string")) {
+    return "test"
+  }
+  if (typeStr.includes("number") || typeStr.includes("int") || typeStr.includes("bigint")) {
+    return 1
+  }
+  if (typeStr.includes("bool")) {
+    return true
+  }
+  if (typeStr.includes("array")) {
+    const elem = schema.element || schema.def?.element || schema._def?.type || schema._def?.element
+    const val = elem ? synthesizeMockValue(elem, depth + 1) : 1
+    return [val !== undefined ? val : 1]
+  }
+  if (typeStr.includes("object")) {
+    const shape =
+      typeof schema.shape === "function"
+        ? schema.shape()
+        : schema.shape || schema.def?.shape || schema._def?.shape?.() || {}
+    const obj: Record<string, any> = {}
+    for (const [k, v] of Object.entries(shape)) {
+      const val = synthesizeMockValue(v, depth + 1)
+      if (val !== undefined) obj[k] = val
+    }
+    return obj
+  }
+  if (typeStr.includes("enum")) {
+    const values = schema.options || schema.values || schema.def?.values || schema._def?.values
+    if (Array.isArray(values) && values.length > 0) return values[0]
+    return "test"
+  }
+  if (typeStr.includes("literal")) {
+    return schema.value ?? schema.def?.value ?? schema._def?.value ?? "test"
+  }
+  if (typeStr.includes("union")) {
+    const options = schema.options || schema.def?.options || schema._def?.options
+    if (Array.isArray(options) && options.length > 0) {
+      return synthesizeMockValue(options[0], depth + 1)
+    }
+  }
+  if (typeStr.includes("record")) {
+    return { key: "test" }
+  }
+  return "test"
+}
+
+export function synthesizeSampleInputs(argsSchema: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {}
+  if (!argsSchema || typeof argsSchema !== "object") return result
+  for (const [key, fieldSchema] of Object.entries(argsSchema)) {
+    const val = synthesizeMockValue(fieldSchema)
+    if (val !== undefined) {
+      result[key] = val
+    }
+  }
+  return result
+}
+
 export function generateDeterministicTest(request: DirectToolRegistrationRequest): string {
   const sampleInputs =
     request.sampleInputs && request.sampleInputs.length > 0
@@ -166,7 +248,94 @@ describe("${request.toolName} direct live tool verification", () => {
       ask: async () => true,
     }
 
-    const sampleInput = ${JSON.stringify(sampleInputs[0])}
+    function synthesizeMockValue(schema: any, depth = 0): any {
+      if (!schema || depth > 5) return "test"
+      const type = schema.type || schema.def?.type || schema._def?.type || schema._def?.typeName || ""
+      const typeStr = String(type).toLowerCase()
+
+      if (typeStr.includes("optional")) {
+        return undefined
+      }
+      if (typeStr.includes("nullable")) {
+        return null
+      }
+      if (typeof schema.def?.defaultValue === "function") {
+        try {
+          return schema.def.defaultValue()
+        } catch {}
+      }
+      if (typeof schema._def?.defaultValue === "function") {
+        try {
+          return schema._def.defaultValue()
+        } catch {}
+      }
+      if (schema.def?.innerType || schema._def?.innerType) {
+        return synthesizeMockValue(schema.def?.innerType || schema._def?.innerType, depth + 1)
+      }
+      if (typeStr.includes("string")) {
+        return "test"
+      }
+      if (typeStr.includes("number") || typeStr.includes("int") || typeStr.includes("bigint")) {
+        return 1
+      }
+      if (typeStr.includes("bool")) {
+        return true
+      }
+      if (typeStr.includes("array")) {
+        const elem = schema.element || schema.def?.element || schema._def?.type || schema._def?.element
+        const val = elem ? synthesizeMockValue(elem, depth + 1) : 1
+        return [val !== undefined ? val : 1]
+      }
+      if (typeStr.includes("object")) {
+        const shape =
+          typeof schema.shape === "function"
+            ? schema.shape()
+            : schema.shape || schema.def?.shape || schema._def?.shape?.() || {}
+        const obj: Record<string, any> = {}
+        for (const [k, v] of Object.entries(shape)) {
+          const val = synthesizeMockValue(v, depth + 1)
+          if (val !== undefined) obj[k] = val
+        }
+        return obj
+      }
+      if (typeStr.includes("enum")) {
+        const values = schema.options || schema.values || schema.def?.values || schema._def?.values
+        if (Array.isArray(values) && values.length > 0) return values[0]
+        return "test"
+      }
+      if (typeStr.includes("literal")) {
+        return schema.value ?? schema.def?.value ?? schema._def?.value ?? "test"
+      }
+      if (typeStr.includes("union")) {
+        const options = schema.options || schema.def?.options || schema._def?.options
+        if (Array.isArray(options) && options.length > 0) {
+          return synthesizeMockValue(options[0], depth + 1)
+        }
+      }
+      if (typeStr.includes("record")) {
+        return { key: "test" }
+      }
+      return "test"
+    }
+
+    let sampleInput: any = ${JSON.stringify(sampleInputs[0])}
+    if (
+      (!sampleInput || Object.keys(sampleInput).length === 0) &&
+      toolInstance.args &&
+      typeof toolInstance.args === "object"
+    ) {
+      const synthesized: Record<string, any> = {}
+      for (const [key, fieldSchema] of Object.entries(toolInstance.args)) {
+        const val = synthesizeMockValue(fieldSchema)
+        if (val !== undefined) {
+          synthesized[key] = val
+        }
+      }
+      if (Object.keys(synthesized).length > 0) {
+        sampleInput = synthesized
+      }
+    }
+
     try {
       const result = await toolInstance.execute(sampleInput, mockCtx)
       assert.ok(result !== undefined && result !== null, "Tool must return a result object")
@@ -192,3 +361,4 @@ describe("${request.toolName} direct live tool verification", () => {
 })
 `
 }
+

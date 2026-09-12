@@ -372,4 +372,71 @@ describe("always_broken_tool test", () => {
     assert.strictEqual(typeof report.stdout, "string")
     assert.strictEqual(typeof report.stderr, "string")
   })
+
+  it("should accurately synthesize mock values from Zod schemas", async () => {
+    const { z } = await import("zod")
+    const { synthesizeMockValue, synthesizeSampleInputs } = await import(
+      "../src/tools/tool-prompts.js"
+    )
+
+    const schemaArgs = {
+      nums: z.array(z.number()),
+      name: z.string(),
+      count: z.number(),
+      active: z.boolean(),
+      mode: z.enum(["a", "b"]),
+      opt: z.string().optional(),
+      config: z.object({
+        limit: z.number(),
+      }),
+    }
+
+    const synthesized = synthesizeSampleInputs(schemaArgs)
+    assert.deepStrictEqual(synthesized.nums, [1])
+    assert.strictEqual(synthesized.name, "test")
+    assert.strictEqual(synthesized.count, 1)
+    assert.strictEqual(synthesized.active, true)
+    assert.strictEqual(synthesized.mode, "a")
+    assert.strictEqual(synthesized.opt, undefined)
+    assert.deepStrictEqual(synthesized.config, { limit: 1 })
+  })
+
+  it("should auto-synthesize valid mock inputs and pass deterministic test when tool has required args and sampleInputs is omitted", async () => {
+    const mockBridge: any = {}
+    const toolMaker = new LiveToolMaker(mockBridge, testWorkspace, toolsDir)
+
+    // Tool has required args (numbers array) and does not do defensive undefined checks
+    const sourceCode = `
+import { tool } from "@opencode-ai/plugin/tool"
+import { z } from "zod"
+
+export const calc_stats = tool({
+  description: "Computes statistics for numbers",
+  args: {
+    numbers: z.array(z.number()).describe("Array of numbers"),
+    label: z.string().describe("Label"),
+  },
+  async execute(args) {
+    // Relies directly on args.numbers being defined and having elements
+    const count = args.numbers.length
+    const sum = args.numbers.reduce((a, b) => a + b, 0)
+    return {
+      output: JSON.stringify({ label: args.label, count, sum })
+    }
+  }
 })
+`
+
+    // Do NOT pass testCode or sampleInputs
+    const res = await toolMaker.registerDirect({
+      toolName: "calc_stats",
+      description: "Computes statistics for numbers",
+      sourceCode,
+    })
+
+    assert.strictEqual(res.status, "ACTIVE")
+    assert.strictEqual(res.attempts, 1)
+    assert.ok(res.testCode.includes("synthesizeMockValue"))
+  })
+})
+
