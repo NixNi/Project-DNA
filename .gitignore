@@ -5,7 +5,8 @@ dist/
 .local/
 .cache/
 .config/
-.agents/
+.agents/*
+!.agents/skills/
 .opencode/dna/
 test-*.db
 test-*.json
