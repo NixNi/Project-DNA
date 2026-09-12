@@ -208,7 +208,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         .join(", ")
 
       out.system.push(
-        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes. Previously created live tools from past sessions are automatically loaded as normal first-class tools with live statistics (e.g. project_test_runner, system_info, hello_world) and can be executed directly or via 'invoke_live_tool'. Newly synthesized tools in this session are available immediately. To create new tools, use 'register_live_tool' or 'synthesize_live_tool'. To manage existing tools, use 'list_live_tools' to inspect, 'unregister_live_tool' to evict broken, obsolete, or duplicate zombie tools, and 'reload_live_tools' to refresh tools from disk.`
+        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes. Previously created live tools from past sessions are automatically loaded as normal first-class tools and can be executed directly or via 'invoke_live_tool'. Newly synthesized tools in this session are available immediately. To inspect active tools, use 'list_live_tools'. To create new tools, use 'register_live_tool' or 'synthesize_live_tool'. To manage existing tools, use 'unregister_live_tool' to evict broken, obsolete, or duplicate zombie tools, and 'reload_live_tools' to refresh tools from disk.`
       )
     },
 
