@@ -219,6 +219,7 @@ export const get_os_info = tool({
     const toolDefOut: any = {}
     await hooks["tool.definition"]!({ toolID: "get_os_info" } as any, toolDefOut)
     assert.strictEqual(toolDefOut.description, "Gets OS information")
+    assert.strictEqual(toolDefOut.parameters, undefined)
 
     // Test tool.execute.before and tool.execute.after step output capture
     const harvestSess = "sess-harvest-1"

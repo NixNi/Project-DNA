@@ -455,9 +455,6 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         if (meta.description) {
           out.description = meta.description
         }
-        if (meta.parameters && Object.keys(meta.parameters).length > 0) {
-          out.parameters = meta.parameters
-        }
       }
     },
 
