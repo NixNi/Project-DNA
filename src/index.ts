@@ -626,6 +626,21 @@ ${
             }
           }
 
+          // 3. Record turn in tool registry to increment unused turns and archive degraded tools
+          if (toolRegistry) {
+            try {
+              await toolRegistry.recordTurn()
+              const active = toolRegistry.getToolMap()
+              for (const key of Object.keys(liveToolsMap)) {
+                if (!active[key] && toolRegistry.isLiveTool(key)) {
+                  delete liveToolsMap[key]
+                }
+              }
+            } catch (err) {
+              console.warn("[Project DNA] Tool turn tracking error:", err)
+            }
+          }
+
           break
         }
 
