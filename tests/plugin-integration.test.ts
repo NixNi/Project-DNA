@@ -293,6 +293,18 @@ export const get_os_info = tool({
       assert.ok(transformOut.system.some((s) => s.includes("unregister_live_tool")))
     }
 
+    // Verify config hook registers analyze-trace slash command
+    if (hooks.config) {
+      const mockOpencodeCfg: any = {}
+      await hooks.config(mockOpencodeCfg)
+      assert.ok(mockOpencodeCfg.command?.["analyze-trace"])
+      assert.ok(
+        mockOpencodeCfg.command["analyze-trace"].template.includes(
+          "session-trace-tool-synthesizer"
+        )
+      )
+    }
+
     // Dispose cleanly
     await hooks.dispose!()
   })

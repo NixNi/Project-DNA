@@ -130,6 +130,22 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
       }
     },
 
+    // Configuration hook: Register dynamic slash commands
+    config: async (cfg: any) => {
+      if (cfg) {
+        if (!cfg.command) {
+          cfg.command = {}
+        }
+        if (!cfg.command["analyze-trace"]) {
+          cfg.command["analyze-trace"] = {
+            template:
+              "Analyze the session execution trace and conversation history. Identify repetitive computational workflows, data-processing patterns, or multi-step scripts, and synthesize them into reusable LiveTools using register_live_tool. Refer to the 'session-trace-tool-synthesizer' skill for instructions.",
+            description: "Analyze session trace and synthesize reusable LiveTools",
+          }
+        }
+      }
+    },
+
     // Execution Interception: Step buffering & intent capture
     "tool.execute.before": async (inp, out) => {
       if (skillHarvester) {
