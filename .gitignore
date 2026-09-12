@@ -5,7 +5,10 @@ dist/
 .local/
 .cache/
 .config/
+.agents/
+.opencode/dna/
 test-*.db
 test-*.json
 test-*-tmp/
-.agents/
+test-e2e-tmp-*/
+test-adversarial-*/
