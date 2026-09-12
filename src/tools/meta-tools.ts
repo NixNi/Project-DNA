@@ -35,7 +35,7 @@ export function createLiveMetaTools(ctx: LiveMetaToolsContext): Record<string, u
   // 1. Synthesize meta-tool: Allows the agent to synthesize, verify, and hot-load new tools
   metaTools["synthesize_live_tool"] = tool({
     description:
-      "Synthesizes a new reusable TypeScript tool or registers a model-authored implementation, validates its AST security, verifies it in an isolated test sandbox, and hot-loads it immediately into OpenCode.",
+      "Synthesizes a new reusable TypeScript tool or registers a model-authored implementation, validates its AST security, verifies it in an isolated test sandbox, and hot-loads it immediately into OpenCode. Note: Provide explicit sampleInputs if your tool expects specific parameter formats, as auto-generated parameters use generic placeholders that may not work for specialized validation.",
     args: {
       toolName: schema
         .string()
@@ -55,7 +55,9 @@ export function createLiveMetaTools(ctx: LiveMetaToolsContext): Record<string, u
       sampleInputs: schema
         .array(schema.record(schema.string(), schema.any()))
         .optional()
-        .describe("Optional representative inputs for test verification. If omitted, mock inputs are automatically synthesized from the tool's args schema."),
+        .describe(
+          "Optional representative inputs for test verification. If omitted, mock inputs are automatically synthesized from the tool's args schema. WARNING: Auto-generated parameters use generic placeholders (e.g. 'test', 1, [1], true) which may produce invalid parameters that fail verification if your tool expects specific formats (e.g. valid file paths, URLs, regex constraints). Always provide explicit sampleInputs when your tool has specific parameter requirements."
+        ),
       expectedOutputs: schema
         .array(schema.any())
         .optional()
@@ -120,7 +122,7 @@ export function createLiveMetaTools(ctx: LiveMetaToolsContext): Record<string, u
   // 2. Direct meta-tool: Allows the agent to directly submit model-authored tools with zero LLM sub-session latency
   metaTools["register_live_tool"] = tool({
     description:
-      "Directly registers a model-authored TypeScript tool into OpenCode with zero background LLM latency. Validates AST security, verifies in isolated subprocess sandbox, and hot-loads into the live registry. Tool source must use 'args: { ... }' with zod schemas (do not use 'input: z.object'). Unit tests automatically resolve relative imports.",
+      "Directly registers a model-authored TypeScript tool into OpenCode with zero background LLM latency. Validates AST security, verifies in isolated subprocess sandbox, and hot-loads into the live registry. Tool source must use 'args: { ... }' with zod schemas (do not use 'input: z.object'). Unit tests automatically resolve relative imports. Note: If sampleInputs is omitted, generic mock inputs are auto-generated from the schema, but generic values ('test', 1, [1]) may generate invalid parameters that fail verification if your tool requires specific formats (e.g. valid file paths, URLs, regex constraints); provide explicit sampleInputs in those cases.",
     args: {
       toolName: schema
         .string()
@@ -141,7 +143,9 @@ export function createLiveMetaTools(ctx: LiveMetaToolsContext): Record<string, u
       sampleInputs: schema
         .array(schema.record(schema.string(), schema.any()))
         .optional()
-        .describe("Optional representative inputs for automated verification test. If omitted, mock inputs are automatically synthesized from the tool's args schema."),
+        .describe(
+          "Optional representative inputs for automated verification test. If omitted, mock inputs are automatically synthesized from the tool's args schema. WARNING: Auto-generated parameters use generic placeholders (e.g. 'test', 1, [1], true) which may produce invalid parameters that fail verification if your tool expects specific formats (e.g. valid file paths, URLs, positive integers, non-empty arrays with specific elements, or regex matches). Always provide explicit sampleInputs when your tool has specific parameter requirements."
+        ),
     } as any,
     async execute(args: any) {
       const toolName = String(args.toolName)
