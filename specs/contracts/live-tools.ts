@@ -14,6 +14,34 @@ export type ToolLifecycleStatus =
   | "DEGRADED"
   | "ARCHIVED"
 
+/**
+ * Developer capabilities requiring OpenCode permission gating
+ */
+export type ToolPermission =
+  | "shell_execution"
+  | "network_access"
+  | "filesystem_write"
+  | "raw_socket_access"
+
+export interface ASTDiagnostic {
+  rule: string
+  severity: "error" | "warning" | "info"
+  message: string
+  line?: number
+  column?: number
+  permission?: ToolPermission
+}
+
+export interface ASTValidationReport {
+  valid: boolean
+  violations: string[]
+  detectedCapabilities: ToolPermission[]
+  requiredPermissions: ToolPermission[]
+  diagnostics?: ASTDiagnostic[]
+}
+
+export type ASTValidationResult = ASTValidationReport
+
 export interface ToolTelemetry {
   totalInvocations: number
   successCount: number
@@ -21,6 +49,8 @@ export interface ToolTelemetry {
   avgDurationMs: number
   healthScore: number
   lastExecutedAt?: string
+  recentExecutions?: boolean[]
+  unusedTurns?: number
 }
 
 export interface ToolPackageMetadata {
@@ -29,10 +59,12 @@ export interface ToolPackageMetadata {
   version: string
   description: string
   entrypoint: string
+  sourceFile?: string
   testFile?: string
   status: ToolLifecycleStatus
   parameters: Record<string, unknown>
   telemetry: ToolTelemetry
+  requiredPermissions?: ToolPermission[]
   createdAt: string
   updatedAt: string
 }
@@ -61,6 +93,12 @@ export interface ToolSynthesisResult {
   sourceCode: string
   testCode: string
   zodSchemaDefinition: string
+  entrypoint?: string
+  sourceFile?: string
+  requiredPermissions?: ToolPermission[]
+  attempts?: number
+  status?: ToolLifecycleStatus | string
+  transitions?: string[]
 }
 
 export interface ToolVerificationReport {
@@ -70,6 +108,8 @@ export interface ToolVerificationReport {
   testsFailed: number
   durationMs: number
   errorOutput?: string
+  stdout?: string
+  stderr?: string
 }
 
 /**
@@ -89,7 +129,10 @@ export interface ILiveToolMaker {
   /**
    * Performs static AST security analysis on generated code
    */
-  validateAST(sourceCode: string): Promise<{ valid: boolean; violations: string[] }>
+  validateAST(
+    sourceCode: string,
+    options?: { strict?: boolean }
+  ): Promise<ASTValidationReport>
 
   /**
    * Executes synthetic unit tests in an isolated sandbox
@@ -99,7 +142,12 @@ export interface ILiveToolMaker {
   /**
    * Attempts self-repair on a tool that failed test execution
    */
-  repair(toolName: string, errorOutput: string): Promise<ToolSynthesisResult>
+  repair(
+    toolName: string,
+    errorOutput: string,
+    stdout?: string,
+    stderr?: string
+  ): Promise<ToolSynthesisResult>
 }
 
 /**
@@ -114,7 +162,30 @@ export interface ILiveToolRegistry {
   /**
    * Hot-loads and registers a new tool in the active runtime
    */
-  registerTool(metadata: ToolPackageMetadata, executableModule: unknown): Promise<void>
+  registerTool(metadata: ToolPackageMetadata, executableModule?: unknown): Promise<void>
+
+  /**
+   * Registers metadata and dynamically imports the executable module into memory
+   */
+  registerAndLoad(metadata: ToolPackageMetadata): Promise<unknown>
+
+  /**
+   * Unregisters and evicts a tool from the registry, disk, and in-memory state
+   */
+  unregisterTool(
+    toolName: string,
+    options?: { removeFiles?: boolean }
+  ): Promise<boolean>
+
+  /**
+   * Reloads all active tools from disk/registry.json and refreshes executable imports
+   */
+  reloadTools(forceFreshVersion?: boolean): Promise<void>
+
+  /**
+   * Cleans up superseded versioned entrypoint files for a tool
+   */
+  cleanupOlderVersions?(toolName: string, activeEntrypoint?: string): Promise<void>
 
   /**
    * Returns dictionary of tools compatible with OpenCode's `tool` hook
@@ -125,6 +196,11 @@ export interface ILiveToolRegistry {
    * Records execution telemetry to compute health score
    */
   recordExecution(toolName: string, success: boolean, durationMs: number): Promise<void>
+
+  /**
+   * Records the completion of an agent turn, updating unused turns and archival state
+   */
+  recordTurn(): Promise<void>
 
   /**
    * Directly invokes a registered live tool by name
@@ -142,7 +218,6 @@ export interface ILiveToolRegistry {
     totalInvocations: number
     healthScore: number
   }>
-
 
   /**
    * Checks if a tool should be flagged as degraded or archived

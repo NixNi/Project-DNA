@@ -219,4 +219,157 @@ describe("sample_tool test", () => {
 
     assert.strictEqual(res.toolName, "sample_tool")
   })
+
+  it("should self-repair on sandbox failure and succeed on retry 1 (attempt 2)", async () => {
+    let callCount = 0
+    const promptsReceived: string[] = []
+
+    const mockBridge: any = {
+      promptJson: async (opts: any) => {
+        callCount++
+        promptsReceived.push(opts.userPrompt)
+
+        if (callCount === 1) {
+          // Initial generation: buggy code where output is wrong
+          return {
+            toolName: "auto_fix_tool",
+            sourceCode: `
+import { tool } from "@opencode-ai/plugin/tool"
+import { z } from "zod"
+export const auto_fix_tool = tool({
+  description: "Test tool",
+  args: { val: z.number() },
+  async execute(args) {
+    return { output: String(args.val + 1) } // Buggy: outputs 11 instead of 10
+  }
+})`,
+            testCode: `
+import { describe, it } from "node:test"
+import assert from "node:assert"
+import { auto_fix_tool } from "../src/auto_fix_tool.js"
+describe("auto_fix_tool test", () => {
+  it("should return val as-is", async () => {
+    const res = await auto_fix_tool.execute({ val: 10 }, { directory: process.cwd() })
+    assert.strictEqual(res.output, "10")
+  })
+})`,
+            zodSchemaDefinition: "",
+          }
+        } else {
+          // Repaired generation: fixed implementation
+          return {
+            toolName: "auto_fix_tool",
+            sourceCode: `
+import { tool } from "@opencode-ai/plugin/tool"
+import { z } from "zod"
+export const auto_fix_tool = tool({
+  description: "Test tool",
+  args: { val: z.number() },
+  async execute(args) {
+    return { output: String(args.val) } // Fixed!
+  }
+})`,
+            testCode: `
+import { describe, it } from "node:test"
+import assert from "node:assert"
+import { auto_fix_tool } from "../src/auto_fix_tool.js"
+describe("auto_fix_tool test", () => {
+  it("should return val as-is", async () => {
+    const res = await auto_fix_tool.execute({ val: 10 }, { directory: process.cwd() })
+    assert.strictEqual(res.output, "10")
+  })
+})`,
+            zodSchemaDefinition: "",
+          }
+        }
+      },
+    }
+
+    const toolMaker = new LiveToolMaker(mockBridge, testWorkspace, toolsDir)
+    const result = await toolMaker.synthesize({
+      toolName: "auto_fix_tool",
+      intent: "Returns val as string",
+      sampleInputs: [{ val: 10 }],
+      expectedOutputs: [{ output: "10" }],
+    })
+
+    assert.strictEqual(callCount, 2, "LLM should be called twice (initial + 1 repair)")
+    assert.strictEqual(result.attempts, 2)
+    assert.strictEqual(toolMaker.lastAttemptCount, 2)
+    assert.strictEqual(result.status, "ACTIVE")
+    assert.deepStrictEqual(result.transitions, [
+      "GENERATING",
+      "VALIDATING_AST",
+      "TESTING_SANDBOX",
+      "GENERATING",
+      "VALIDATING_AST",
+      "TESTING_SANDBOX",
+      "ACTIVE",
+    ])
+    // Verify prompt 2 contained failure details
+    assert.ok(promptsReceived[1].includes("Sandbox Test Failure"))
+    assert.ok(promptsReceived[1].includes("Retry attempt 1 of 2"))
+  })
+
+  it("should exhaust up to 2 retries (3 total sandbox attempts) and throw error on persistent failure", async () => {
+    let callCount = 0
+
+    const mockBridge: any = {
+      promptJson: async () => {
+        callCount++
+        return {
+          toolName: "always_broken_tool",
+          sourceCode: `
+import { tool } from "@opencode-ai/plugin/tool"
+import { z } from "zod"
+export const always_broken_tool = tool({
+  description: "Broken tool",
+  args: {},
+  async execute() {
+    return { output: "fail" }
+  }
+})`,
+          testCode: `
+import { describe, it } from "node:test"
+import assert from "node:assert"
+import { always_broken_tool } from "../src/always_broken_tool.js"
+describe("always_broken_tool test", () => {
+  it("always fails", async () => {
+    assert.strictEqual(1, 2)
+  })
+})`,
+          zodSchemaDefinition: "",
+        }
+      },
+    }
+
+    const toolMaker = new LiveToolMaker(mockBridge, testWorkspace, toolsDir)
+    await assert.rejects(
+      async () => {
+        await toolMaker.synthesize({
+          toolName: "always_broken_tool",
+          intent: "Broken tool",
+        })
+      },
+      (err: any) => {
+        assert.ok(err.message.includes("failed sandbox verification after 3 attempts (2 retries exhausted)"))
+        return true
+      }
+    )
+
+    assert.strictEqual(callCount, 3, "LLM should be called 3 times (1 initial + 2 retries)")
+    assert.strictEqual(toolMaker.lastAttemptCount, 3)
+    assert.ok(toolMaker.lastTransitions.includes("REJECTED"))
+  })
+
+  it("should support TestSandbox.execute alias method", async () => {
+    const { TestSandbox } = await import("../src/tools/test-sandbox.js")
+    const sandbox = new TestSandbox(testWorkspace)
+    assert.strictEqual(typeof sandbox.execute, "function")
+    const testFile = path.join(toolsDir, "tests", "sample_tool.test.ts")
+    const report = await sandbox.execute(testFile)
+    assert.strictEqual(report.passed, true)
+    assert.strictEqual(typeof report.stdout, "string")
+    assert.strictEqual(typeof report.stderr, "string")
+  })
 })

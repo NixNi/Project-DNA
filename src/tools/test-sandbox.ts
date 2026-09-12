@@ -30,6 +30,16 @@ export class TestSandbox {
   }
 
   /**
+   * Executes the generated test suite in an isolated subprocess (alias for runTestFile)
+   */
+  public async execute(
+    testFilePath: string,
+    timeoutMs = 5000
+  ): Promise<ToolVerificationReport> {
+    return this.runTestFile(testFilePath, timeoutMs)
+  }
+
+  /**
    * Runs the generated test suite in an isolated subprocess
    */
   public async runTestFile(
@@ -80,6 +90,8 @@ export class TestSandbox {
             testsFailed: 1,
             durationMs: duration,
             errorOutput: `Test execution timed out after ${timeoutMs}ms`,
+            stdout: stdout.trim(),
+            stderr: stderr.trim(),
           })
           return
         }
@@ -92,6 +104,8 @@ export class TestSandbox {
           testsFailed: passed ? 0 : 1,
           durationMs: duration,
           errorOutput: passed ? undefined : `${stderr}\n${stdout}`.trim(),
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
         })
       })
 
@@ -104,6 +118,8 @@ export class TestSandbox {
           testsFailed: 1,
           durationMs: Date.now() - startTime,
           errorOutput: `Subprocess error: ${err.message}`,
+          stdout: "",
+          stderr: err.message,
         })
       })
     })

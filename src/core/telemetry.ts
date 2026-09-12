@@ -6,19 +6,22 @@
 export class TelemetryCalculator {
   /**
    * Computes a dynamic health score between 0.0 and 1.0
-   * Takes into account overall success rate and penalizes recent failures.
+   * Multiplicative formula: (Successes / Total) * (1 - FailuresInLast5 / 5)
    */
   public static computeHealthScore(
     successCount: number,
     failureCount: number,
     recentFailuresInLast5 = 0
   ): number {
-    const total = successCount + failureCount
+    const safeSuccess = Math.max(0, successCount)
+    const safeFailure = Math.max(0, failureCount)
+    const total = safeSuccess + safeFailure
     if (total === 0) return 1.0
 
-    const rawSuccessRate = successCount / total
-    const recentPenalty = Math.min(recentFailuresInLast5 / 5, 1.0) * 0.4
-    const finalScore = Math.max(0, rawSuccessRate - recentPenalty)
+    const rawSuccessRate = safeSuccess / total
+    const clampedFailures = Math.max(0, Math.min(recentFailuresInLast5, 5))
+    const recentMultiplier = 1 - clampedFailures / 5
+    const finalScore = rawSuccessRate * recentMultiplier
 
     return Math.round(finalScore * 100) / 100
   }

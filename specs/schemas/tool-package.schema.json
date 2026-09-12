@@ -44,7 +44,15 @@
     },
     "status": {
       "type": "string",
-      "enum": ["PROPOSED", "TESTING", "ACTIVE", "DEGRADED", "ARCHIVED"],
+      "enum": [
+        "PROPOSED",
+        "GENERATING",
+        "VALIDATING_AST",
+        "TESTING",
+        "ACTIVE",
+        "DEGRADED",
+        "ARCHIVED"
+      ],
       "description": "Current lifecycle status of the tool"
     },
     "parameters": {
@@ -89,6 +97,23 @@
     "updatedAt": {
       "type": "string",
       "format": "date-time"
+    },
+    "sourceFile": {
+      "type": "string",
+      "description": "Relative path to the canonical source TypeScript tool file (e.g. src/my_tool.ts)"
+    },
+    "requiredPermissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "shell_execution",
+          "network_access",
+          "filesystem_write",
+          "raw_socket_access"
+        ]
+      },
+      "description": "Developer capabilities detected by AST analysis and gated via OpenCode permissions"
     }
   },
   "additionalProperties": false

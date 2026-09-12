@@ -19,10 +19,19 @@ import { DiagnosticBank } from "./memory/diagnostic-bank.js"
 
 import { LiveToolRegistry } from "./tools/tool-registry.js"
 import { LiveToolMaker } from "./tools/tool-maker.js"
+import type { ToolPackageMetadata } from "../specs/contracts/live-tools.js"
 
 import { LiveSkillHarvester } from "./skills/trace-harvester.js"
 import { LiveSkillDistiller } from "./skills/skill-distiller.js"
 import { LiveSkillStore } from "./skills/skill-store.js"
+
+function incrementPatch(version: string): string {
+  const parts = version.split(".").map(Number)
+  if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
+    return `${parts[0]}.${parts[1]}.${parts[2] + 1}`
+  }
+  return "1.0.1"
+}
 
 export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
   // 1. Initialize Configuration and Workspace Storage Layout
@@ -106,7 +115,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         const sampleInputs = (Array.isArray(args.sampleInputs) ? args.sampleInputs : []) as Record<string, unknown>[]
         const expectedOutputs = (Array.isArray(args.expectedOutputs) ? args.expectedOutputs : []) as unknown[]
 
-        await toolMaker.synthesize({
+        const result = await toolMaker.synthesize({
           toolName,
           intent,
           sourceCode,
@@ -115,23 +124,26 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
           expectedOutputs,
         })
 
-        const metadata = {
-          id: randomUUID(),
+        const existingMeta = toolRegistry.getMetadata(toolName)
+        const metadata: ToolPackageMetadata = {
+          id: existingMeta?.id ?? randomUUID(),
           name: toolName,
-          version: "1.0.0",
+          version: existingMeta ? incrementPatch(existingMeta.version) : "1.0.0",
           description: intent,
-          entrypoint: `src/${toolName}.ts`,
+          entrypoint: result.entrypoint ?? `src/${toolName}.ts`,
+          sourceFile: result.sourceFile ?? `src/${toolName}.ts`,
           testFile: `tests/${toolName}.test.ts`,
           status: "ACTIVE" as const,
           parameters: {},
-          telemetry: {
+          requiredPermissions: result.requiredPermissions ?? [],
+          telemetry: existingMeta?.telemetry ?? {
             totalInvocations: 0,
             successCount: 0,
             failureCount: 0,
             avgDurationMs: 0,
             healthScore: 1.0,
           },
-          createdAt: new Date().toISOString(),
+          createdAt: existingMeta?.createdAt ?? new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
 
@@ -139,15 +151,6 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         const executable = await toolRegistry.registerAndLoad(metadata)
         if (executable) {
           liveToolsMap[toolName] = executable
-          // Extract argument descriptions into metadata parameters for catalog discovery
-          const execObj = executable as any
-          if (execObj?.args && typeof execObj.args === "object") {
-            metadata.parameters = Object.keys(execObj.args).reduce((acc: any, k: string) => {
-              acc[k] = execObj.args[k]?.description || "parameter"
-              return acc
-            }, {})
-            await toolRegistry.registerTool(metadata, executable)
-          }
         }
 
         // Notify user via OpenCode TUI toast
@@ -197,7 +200,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         const testCode = args.testCode ? String(args.testCode) : undefined
         const sampleInputs = Array.isArray(args.sampleInputs) ? args.sampleInputs : []
 
-        await toolMaker.registerDirect({
+        const result = await toolMaker.registerDirect({
           toolName,
           description: desc,
           sourceCode,
@@ -205,38 +208,32 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
           sampleInputs,
         })
 
-        const metadata = {
-          id: randomUUID(),
+        const existingMeta = toolRegistry.getMetadata(toolName)
+        const metadata: ToolPackageMetadata = {
+          id: existingMeta?.id ?? randomUUID(),
           name: toolName,
-          version: "1.0.0",
+          version: existingMeta ? incrementPatch(existingMeta.version) : "1.0.0",
           description: desc,
-          entrypoint: `src/${toolName}.ts`,
+          entrypoint: result.entrypoint ?? `src/${toolName}.ts`,
+          sourceFile: result.sourceFile ?? `src/${toolName}.ts`,
           testFile: `tests/${toolName}.test.ts`,
           status: "ACTIVE" as const,
           parameters: {},
-          telemetry: {
+          requiredPermissions: result.requiredPermissions ?? [],
+          telemetry: existingMeta?.telemetry ?? {
             totalInvocations: 0,
             successCount: 0,
             failureCount: 0,
             avgDurationMs: 0,
             healthScore: 1.0,
           },
-          createdAt: new Date().toISOString(),
+          createdAt: existingMeta?.createdAt ?? new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
 
         const executable = await toolRegistry.registerAndLoad(metadata)
         if (executable) {
           liveToolsMap[toolName] = executable
-          // Extract argument descriptions into metadata parameters
-          const execObj = executable as any
-          if (execObj?.args && typeof execObj.args === "object") {
-            metadata.parameters = Object.keys(execObj.args).reduce((acc: any, k: string) => {
-              acc[k] = execObj.args[k]?.description || "parameter"
-              return acc
-            }, {})
-            await toolRegistry.registerTool(metadata, executable)
-          }
         }
 
         // Notify user via OpenCode TUI toast
@@ -270,9 +267,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         const toolName = String(callArgs.toolName)
         const toolArgs =
           callArgs.args && typeof callArgs.args === "object" ? callArgs.args : {}
-        const rawResult = await toolRegistry.invokeTool(toolName, toolArgs, context)
-        // Ensure result is fully normalized with output: string so OpenCode's host runner never crashes
-        return LiveToolRegistry.normalizeToolResult(toolName, rawResult)
+        return (await toolRegistry.invokeTool(toolName, toolArgs, context)) as any
       },
     })
 
@@ -293,6 +288,112 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
               ? JSON.stringify(tools, null, 2)
               : "No synthesized live tools currently registered. Use 'synthesize_live_tool' or 'register_live_tool' to create one.",
           metadata: { count: tools.length },
+        }
+      },
+    })
+
+    // Unregister meta-tool: Clean eviction of broken, degraded, or duplicate zombie tools
+    liveToolsMap["unregister_live_tool"] = tool({
+      description:
+        "Cleanly unregisters and evicts a LiveTool by name from OpenCode, the in-memory registry, registry.json, and deletes its on-disk source and test files. Use this to remove broken, obsolete, or duplicate tools (such as failed implementations or duplicate tools like git_pr_status / pr_status).",
+      args: {
+        toolName: schema
+          .string()
+          .regex(/^[a-z0-9_-]+$/)
+          .describe("The unique snake_case or kebab-case name of the synthesized live tool to unregister"),
+        deleteFiles: schema
+          .boolean()
+          .optional()
+          .describe("Whether to delete on-disk source and test files (default: true)"),
+      } as any,
+      async execute(args: any) {
+        if (!toolRegistry) {
+          throw new Error("LiveTools subsystem is disabled.")
+        }
+        const toolName = String(args.toolName)
+        const deleteFiles = args.deleteFiles !== false
+
+        if (!toolRegistry.isLiveTool(toolName)) {
+          const available = toolRegistry.listTools().map((t) => t.name)
+          return {
+            title: `Tool Not Found: ${toolName}`,
+            output: `Cannot unregister tool '${toolName}': Tool is not registered in the LiveTool registry. Available tools: ${available.join(", ") || "none"}`,
+            metadata: {
+              success: false,
+              toolName,
+              availableTools: available,
+            },
+          }
+        }
+
+        const success = await toolRegistry.unregisterTool(toolName, { removeFiles: deleteFiles })
+        delete liveToolsMap[toolName]
+
+        await notifier.notify({
+          title: "LiveTool Unregistered",
+          message: `Tool '${toolName}' successfully unregistered and evicted.`,
+          variant: "info",
+        })
+
+        return {
+          title: `Unregistered LiveTool: ${toolName}`,
+          output: `Tool '${toolName}' was successfully unregistered, removed from OpenCode's active registry, deleted from registry.json, and in-memory caches evicted.`,
+          metadata: {
+            success,
+            toolName,
+          },
+        }
+      },
+    })
+
+    // Reload meta-tool: Refreshes active tools from registry.json and disk, synchronizing liveToolsMap
+    liveToolsMap["reload_live_tools"] = tool({
+      description:
+        "Reloads all active LiveTools from disk and registry.json, invalidates module caches using fresh versioned entrypoints, and synchronizes the live execution registry. Use this after manual file edits, external updates, or to recover stale tool references without restarting OpenCode.",
+      args: {} as any,
+      async execute() {
+        if (!toolRegistry) {
+          throw new Error("LiveTools subsystem is disabled.")
+        }
+
+        await toolRegistry.reloadTools(true)
+        const active = toolRegistry.getToolMap()
+        const activeKeys = new Set(Object.keys(active))
+        const metaToolKeys = new Set([
+          "synthesize_live_tool",
+          "register_live_tool",
+          "invoke_live_tool",
+          "list_live_tools",
+          "unregister_live_tool",
+          "reload_live_tools",
+          "query_knowledge_graph",
+        ])
+
+        // Evict keys that no longer exist
+        for (const key of Object.keys(liveToolsMap)) {
+          if (!metaToolKeys.has(key) && !activeKeys.has(key)) {
+            delete liveToolsMap[key]
+          }
+        }
+        // Update active tools
+        for (const [key, exec] of Object.entries(active)) {
+          liveToolsMap[key] = exec
+        }
+
+        const reloadedNames = Object.keys(active)
+        await notifier.notify({
+          title: "LiveTools Reloaded",
+          message: `Reloaded ${reloadedNames.length} tool(s) from disk.`,
+          variant: "success",
+        })
+
+        return {
+          title: `Reloaded LiveTools (${reloadedNames.length} active)`,
+          output: `Successfully reloaded ${reloadedNames.length} active live tools: ${reloadedNames.join(", ") || "none"}.`,
+          metadata: {
+            reloaded: reloadedNames,
+            activeCount: reloadedNames.length,
+          },
         }
       },
     })
@@ -350,8 +451,13 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
     "tool.definition": async (inp, out) => {
       if (!toolRegistry) return
       const meta = toolRegistry.getMetadata(inp.toolID)
-      if (meta && meta.description) {
-        out.description = meta.description
+      if (meta) {
+        if (meta.description) {
+          out.description = meta.description
+        }
+        if (meta.parameters && Object.keys(meta.parameters).length > 0) {
+          out.parameters = meta.parameters
+        }
       }
     },
 
@@ -433,7 +539,7 @@ export const ProjectDNAPlugin: Plugin = async (input, userOptions) => {
         .join(", ")
 
       out.system.push(
-        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes. Previously created live tools from past sessions are automatically loaded as normal first-class tools with live statistics (e.g. project_test_runner, system_info, hello_world) and can be executed directly or via 'invoke_live_tool'. Newly synthesized tools in this session are available immediately. To create new tools, use 'register_live_tool' or 'synthesize_live_tool'.`
+        `Project DNA is active [${activePillars}]: This agent autonomously writes, verifies, and reuses procedural skills, tools, and Zettelkasten memory notes. Previously created live tools from past sessions are automatically loaded as normal first-class tools with live statistics (e.g. project_test_runner, system_info, hello_world) and can be executed directly or via 'invoke_live_tool'. Newly synthesized tools in this session are available immediately. To create new tools, use 'register_live_tool' or 'synthesize_live_tool'. To manage existing tools, use 'list_live_tools' to inspect, 'unregister_live_tool' to evict broken, obsolete, or duplicate zombie tools, and 'reload_live_tools' to refresh tools from disk.`
       )
     },
 

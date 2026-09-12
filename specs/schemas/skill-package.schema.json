@@ -59,7 +59,15 @@
     },
     "lifecycleStatus": {
       "type": "string",
-      "enum": ["HARVESTED", "STAGED", "ACTIVE", "DEGRADED", "ARCHIVED"],
+      "enum": [
+        "HARVESTED",
+        "DISTILLING",
+        "STAGED",
+        "VERIFYING",
+        "ACTIVE",
+        "DEGRADED",
+        "ARCHIVED"
+      ],
       "description": "Current lifecycle status of the skill"
     },
     "scripts": {

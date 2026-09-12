@@ -15,15 +15,19 @@
       "verbose": "If true, pass --verbose to show individual test results."
     },
     "telemetry": {
-      "totalInvocations": 5,
-      "successCount": 3,
+      "totalInvocations": 6,
+      "successCount": 4,
       "failureCount": 2,
-      "avgDurationMs": 444,
-      "healthScore": 0.6,
-      "lastExecutedAt": "2026-09-11T19:05:51.753Z"
+      "avgDurationMs": 730,
+      "healthScore": 0.67,
+      "lastExecutedAt": "2026-09-11T20:28:45.031Z",
+      "recentExecutions": [
+        true
+      ],
+      "unusedTurns": 0
     },
     "createdAt": "2026-09-10T11:56:18.900Z",
-    "updatedAt": "2026-09-11T19:05:51.753Z"
+    "updatedAt": "2026-09-11T20:28:45.031Z"
   },
   {
     "id": "fc77c1d6-bba1-48f9-a90a-015526125895",
@@ -35,15 +39,19 @@
     "status": "ACTIVE",
     "parameters": {},
     "telemetry": {
-      "totalInvocations": 4,
-      "successCount": 4,
+      "totalInvocations": 5,
+      "successCount": 5,
       "failureCount": 0,
-      "avgDurationMs": 9.25,
+      "avgDurationMs": 9.8,
       "healthScore": 1,
-      "lastExecutedAt": "2026-09-11T19:05:50.221Z"
+      "lastExecutedAt": "2026-09-11T20:28:26.901Z",
+      "recentExecutions": [
+        true
+      ],
+      "unusedTurns": 0
     },
     "createdAt": "2026-09-10T14:02:23.266Z",
-    "updatedAt": "2026-09-11T19:05:50.221Z"
+    "updatedAt": "2026-09-11T20:28:26.901Z"
   },
   {
     "id": "53c2c017-3cfc-42ad-8a04-61beebe40658",
@@ -57,15 +65,19 @@
       "name": "Name to greet"
     },
     "telemetry": {
-      "totalInvocations": 5,
-      "successCount": 5,
+      "totalInvocations": 6,
+      "successCount": 6,
       "failureCount": 0,
-      "avgDurationMs": 0.2,
+      "avgDurationMs": 0.17,
       "healthScore": 1,
-      "lastExecutedAt": "2026-09-11T19:05:50.188Z"
+      "lastExecutedAt": "2026-09-11T20:28:29.374Z",
+      "recentExecutions": [
+        true
+      ],
+      "unusedTurns": 0
     },
     "createdAt": "2026-09-10T14:03:16.910Z",
-    "updatedAt": "2026-09-11T19:05:50.188Z"
+    "updatedAt": "2026-09-11T20:28:29.374Z"
   },
   {
     "id": "9050eea0-69a5-4033-88b4-2c75f32b9bbc",
@@ -79,15 +91,19 @@
       "text": "The text to analyze. Empty strings are allowed and return zero counts."
     },
     "telemetry": {
-      "totalInvocations": 2,
-      "successCount": 2,
+      "totalInvocations": 3,
+      "successCount": 3,
       "failureCount": 0,
-      "avgDurationMs": 3,
+      "avgDurationMs": 2,
       "healthScore": 1,
-      "lastExecutedAt": "2026-09-11T19:06:26.044Z"
+      "lastExecutedAt": "2026-09-11T20:28:29.592Z",
+      "recentExecutions": [
+        true
+      ],
+      "unusedTurns": 0
     },
     "createdAt": "2026-09-11T19:06:24.757Z",
-    "updatedAt": "2026-09-11T19:06:26.044Z"
+    "updatedAt": "2026-09-11T20:28:29.592Z"
   },
   {
     "id": "6a24c935-7b67-4f57-9a41-613a693036d3",
@@ -102,14 +118,83 @@
       "fullSequence": "When true, also returns the entire sequence from F(0) through F(n)."
     },
     "telemetry": {
-      "totalInvocations": 6,
-      "successCount": 6,
+      "totalInvocations": 7,
+      "successCount": 7,
       "failureCount": 0,
-      "avgDurationMs": 2.17,
+      "avgDurationMs": 2,
       "healthScore": 1,
-      "lastExecutedAt": "2026-09-11T19:07:59.653Z"
+      "lastExecutedAt": "2026-09-11T20:28:29.251Z",
+      "recentExecutions": [
+        true
+      ],
+      "unusedTurns": 0
     },
     "createdAt": "2026-09-11T19:07:25.352Z",
-    "updatedAt": "2026-09-11T19:07:59.653Z"
+    "updatedAt": "2026-09-11T20:28:29.251Z"
+  },
+  {
+    "id": "b13beb44-4e7e-461f-b7c4-81f54fe0cde5",
+    "name": "git_pr_status",
+    "version": "1.0.0",
+    "description": "Reports pull request status for a local git repository over the GitHub REST API. Locates the repo root by walking up from repoPath, reads remote 'origin' from .git/config, derives the owner/repo slug, and lists open PRs with author, base/head refs, draft state, and headline. Optional watch mode also reports CI check-run status per PR. Honors GITHUB_TOKEN env var for private repos / higher rate limits; never embeds secrets.",
+    "entrypoint": "src/git_pr_status.ts",
+    "testFile": "tests/git_pr_status.test.ts",
+    "status": "ACTIVE",
+    "parameters": {
+      "repoPath": "Path inside the git repository. Defaults to the current working directory.",
+      "all": "List all open PRs instead of only those authored by the ticket holder. Requires GITHUB_TOKEN to resolve the current user; without it, all open PRs are returned.",
+      "watch": "Include CI check-run status for each open pull request.",
+      "includeClosed": "Also include recently merged/closed pull requests."
+    },
+    "telemetry": {
+      "totalInvocations": 4,
+      "successCount": 4,
+      "failureCount": 0,
+      "avgDurationMs": 7,
+      "healthScore": 1,
+      "recentExecutions": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "lastExecutedAt": "2026-09-11T20:34:33.588Z",
+      "unusedTurns": 0
+    },
+    "createdAt": "2026-09-11T20:34:32.034Z",
+    "updatedAt": "2026-09-11T20:34:33.588Z"
+  },
+  {
+    "id": "d2d7dbb8-a4e6-4eab-8a19-cb22163c9214",
+    "name": "pr_status",
+    "version": "1.0.0",
+    "description": "Reports pull request status for a local git repository over the GitHub REST API. Locates the repo root by walking up from repoPath, reads remote 'origin' from .git/config, derives the owner/repo slug, and lists open PRs with author, base/head refs, draft state, and headline. Optional watch mode also reports CI check-run status per PR. Honors GITHUB_TOKEN env var for private repos / higher rate limits; never embeds secrets.",
+    "entrypoint": "src/pr_status.ts",
+    "testFile": "tests/pr_status.test.ts",
+    "status": "ACTIVE",
+    "parameters": {
+      "repoPath": "Path inside the git repository. Defaults to the current working directory.",
+      "all": "List all open PRs. When GITHUB_TOKEN is set, defaults to only your PRs; set true to list everyone’s.",
+      "watch": "Include CI check-run status for each open pull request.",
+      "includeClosed": "Also include recently merged/closed pull requests."
+    },
+    "telemetry": {
+      "totalInvocations": 4,
+      "successCount": 4,
+      "failureCount": 0,
+      "avgDurationMs": 438.25,
+      "healthScore": 1,
+      "recentExecutions": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "lastExecutedAt": "2026-09-11T20:36:15.511Z",
+      "unusedTurns": 0
+    },
+    "createdAt": "2026-09-11T20:36:10.496Z",
+    "updatedAt": "2026-09-11T20:36:15.511Z"
   }
 ]

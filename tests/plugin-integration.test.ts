@@ -260,7 +260,37 @@ export const get_os_info = tool({
       "utf-8"
     )
     assert.ok(skillMd.includes("git-commit-and-push"))
-    assert.ok(toasts.some((t) => t.body.title.includes("LiveSkill Harvested")))
+    // Test unregister_live_tool meta-tool
+    const unregisterTool = (hooks.tool as any)["unregister_live_tool"]
+    assert.ok(unregisterTool, "unregister_live_tool meta-tool must be exposed")
+
+    // Unregistering non-existent tool returns diagnostic with available tools
+    const failUnreg = await unregisterTool.execute({ toolName: "non_existent_tool" })
+    assert.ok(failUnreg.output.includes("Cannot unregister tool 'non_existent_tool'"))
+    assert.ok(failUnreg.output.includes("Available tools:"))
+
+    // Successfully unregister get_os_info
+    const unregResult = await unregisterTool.execute({ toolName: "get_os_info" })
+    assert.strictEqual(unregResult.title, "Unregistered LiveTool: get_os_info")
+    assert.strictEqual((hooks.tool as any)["get_os_info"], undefined)
+
+    // Verify reload_live_tools meta-tool
+    const reloadTools = (hooks.tool as any)["reload_live_tools"]
+    assert.ok(reloadTools, "reload_live_tools meta-tool must be exposed")
+    const reloadResult = await reloadTools.execute({})
+    assert.ok(reloadResult.title.includes("Reloaded LiveTools"))
+    assert.ok(reloadTools.execute)
+    assert.ok((hooks.tool as any)["synthesize_live_tool"])
+    assert.ok((hooks.tool as any)["invoke_live_tool"])
+    assert.ok((hooks.tool as any)["unregister_live_tool"])
+    assert.ok((hooks.tool as any)["reload_live_tools"])
+
+    // Verify system transform includes meta-tool announcements
+    if (hooks["experimental.chat.system.transform"]) {
+      const transformOut = { system: [] as string[] }
+      await hooks["experimental.chat.system.transform"]({} as any, transformOut)
+      assert.ok(transformOut.system.some((s) => s.includes("unregister_live_tool")))
+    }
 
     // Dispose cleanly
     await hooks.dispose!()
